@@ -118,6 +118,13 @@ jobs:
           cache: 'npm'
           cache-dependency-path: 'tock-ui/package-lock.json'
 
+      - name: Install semantic-release dependencies
+        working-directory: ./tock-ui
+        run: |
+          npm ci
+          # Ensure all semantic-release plugins are available
+          npm install @semantic-release/commit-analyzer @semantic-release/release-notes-generator @semantic-release/changelog @semantic-release/git @semantic-release/github --no-save
+
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
