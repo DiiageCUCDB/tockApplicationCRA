@@ -30,7 +30,7 @@ export const ReportApiSender: React.FC<ReportApiSenderProps> = ({ showMessage })
         const parsedRoutes: ApiRoute[] = JSON.parse(routesResult.output);
         setRoutes(parsedRoutes);
       } catch (e) {
-        console.error('Failed to parse routes:', e);
+        console.error('Failed to parse API routes response:', e);
       }
     }
     
@@ -41,7 +41,7 @@ export const ReportApiSender: React.FC<ReportApiSenderProps> = ({ showMessage })
         const parsedSettings: ReportSettings = JSON.parse(settingsResult.output);
         setSettings(parsedSettings);
       } catch (e) {
-        console.error('Failed to parse settings:', e);
+        console.error('Failed to parse report settings response:', e);
       }
     }
     

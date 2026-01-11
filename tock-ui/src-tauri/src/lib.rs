@@ -882,25 +882,18 @@ async fn send_monthly_report_to_api(api_route_id: i64) -> CommandResult {
         .await {
             Ok(response) => {
                 let status = response.status();
-                match response.text().await {
-                    Ok(text) => CommandResult {
-                        success: status.is_success(),
-                        output: if status.is_success() {
-                            format!("Monthly report sent successfully to {}. Response: {}", api_route.name, text)
-                        } else {
-                            text
-                        },
-                        error: if !status.is_success() {
-                            Some(format!("API returned status {}", status))
-                        } else {
-                            None
-                        },
-                    },
-                    Err(e) => CommandResult {
+                if status.is_success() {
+                    CommandResult {
+                        success: true,
+                        output: format!("Monthly report sent successfully to {}", api_route.name),
+                        error: None,
+                    }
+                } else {
+                    CommandResult {
                         success: false,
                         output: String::new(),
-                        error: Some(format!("Failed to read response: {}", e)),
-                    },
+                        error: Some(format!("API returned status: {}", status)),
+                    }
                 }
             },
             Err(e) => CommandResult {
