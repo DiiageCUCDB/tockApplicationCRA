@@ -375,50 +375,44 @@ impl Database {
         Ok(())
     }
     
-    // Cached Projects methods
     pub fn get_cached_projects(&self, api_route_id: Option<i64>) -> SqlResult<Vec<CachedProject>> {
         let conn = self.conn.lock().unwrap();
         
         let mut stmt = if let Some(route_id) = api_route_id {
             conn.prepare(
                 "SELECT id, name, description, source_api_route_id, last_synced 
-                 FROM cached_projects 
-                 WHERE source_api_route_id = ?1 
-                 ORDER BY name"
+                FROM cached_projects 
+                WHERE source_api_route_id = ?1 
+                ORDER BY name"
             )?
         } else {
             conn.prepare(
                 "SELECT id, name, description, source_api_route_id, last_synced 
-                 FROM cached_projects 
-                 ORDER BY name"
+                FROM cached_projects 
+                ORDER BY name"
             )?
         };
         
+        // Use a boxed closure with dynamic dispatch
+        let mapper: Box<dyn Fn(&rusqlite::Row) -> SqlResult<CachedProject>> = Box::new(|row| {
+            Ok(CachedProject {
+                id: Some(row.get(0)?),
+                name: row.get(1)?,
+                description: row.get(2)?,
+                source_api_route_id: row.get(3)?,
+                last_synced: row.get(4)?,
+            })
+        });
+        
         let projects = if let Some(route_id) = api_route_id {
-            stmt.query_map(params![route_id], |row| {
-                Ok(CachedProject {
-                    id: Some(row.get(0)?),
-                    name: row.get(1)?,
-                    description: row.get(2)?,
-                    source_api_route_id: row.get(3)?,
-                    last_synced: row.get(4)?,
-                })
-            })?
+            stmt.query_map(params![route_id], mapper)?
         } else {
-            stmt.query_map([], |row| {
-                Ok(CachedProject {
-                    id: Some(row.get(0)?),
-                    name: row.get(1)?,
-                    description: row.get(2)?,
-                    source_api_route_id: row.get(3)?,
-                    last_synced: row.get(4)?,
-                })
-            })?
+            stmt.query_map([], mapper)?
         };
         
         projects.collect::<SqlResult<Vec<_>>>()
     }
-    
+
     pub fn save_cached_projects(&self, projects: &[(String, String, i64)]) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         let now = chrono::Local::now().to_rfc3339();
