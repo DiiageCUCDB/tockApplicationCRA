@@ -117,11 +117,12 @@ export const HistoryTab: React.FC = () => {
       const sections = result.output.split(DATE_SEPARATOR_REGEX);
       
       // sections will be like: ['', '2026-01-01', '<data>', '2026-01-02', '<data>', ...]
-      for (let i = 1; i < sections.length; i += 2) {
+      // Ensure we have pairs of (date, data) by checking bounds
+      for (let i = 1; i + 1 < sections.length; i += 2) {
         const dateStr = sections[i];
         const output = sections[i + 1];
         
-        if (output && output.trim()) {
+        if (dateStr && output && output.trim()) {
           newActivitiesData[dateStr] = parseActivitiesOutput(output, dateStr);
         }
       }

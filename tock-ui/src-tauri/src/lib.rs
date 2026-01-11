@@ -40,7 +40,14 @@ impl CommandCache {
     }
 
     fn get(&self, key: &str) -> Option<CommandResult> {
-        let mut entries = self.entries.lock().unwrap();
+        let mut entries = match self.entries.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                // If the mutex is poisoned, recover the data and continue
+                // This is safe because we're just reading cached data
+                poisoned.into_inner()
+            }
+        };
         if let Some(entry) = entries.get(key) {
             if entry.timestamp.elapsed() < self.ttl {
                 return Some(CommandResult {
@@ -56,7 +63,10 @@ impl CommandCache {
     }
 
     fn set(&self, key: String, result: CommandResult) {
-        let mut entries = self.entries.lock().unwrap();
+        let mut entries = match self.entries.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
         entries.insert(key, CacheEntry {
             result,
             timestamp: Instant::now(),
@@ -64,12 +74,18 @@ impl CommandCache {
     }
 
     fn invalidate(&self) {
-        let mut entries = self.entries.lock().unwrap();
+        let mut entries = match self.entries.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
         entries.clear();
     }
 
     fn invalidate_pattern(&self, pattern: &str) {
-        let mut entries = self.entries.lock().unwrap();
+        let mut entries = match self.entries.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
         entries.retain(|key, _| !key.contains(pattern));
     }
 }
