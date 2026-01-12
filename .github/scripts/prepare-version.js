@@ -30,13 +30,20 @@ function getNextVersion() {
     const output = execSync('npx semantic-release --dry-run', {
       cwd: TOCK_UI_DIR,
       encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe']
+      env: {
+        ...process.env,
+        GITHUB_ACTIONS: 'true'
+      }
     });
+    
+    log('Semantic-release output:');
+    console.log(output);
     
     // Parse semantic-release output to find the next version
     const versionMatch = output.match(/Published release (\d+\.\d+\.\d+)/i) ||
                          output.match(/next release version is (\d+\.\d+\.\d+)/i) ||
-                         output.match(/The next release version is (\d+\.\d+\.\d+)/i);
+                         output.match(/The next release version is (\d+\.\d+\.\d+)/i) ||
+                         output.match(/Release version (\d+\.\d+\.\d+)/i);
     
     if (versionMatch) {
       return versionMatch[1];
@@ -44,7 +51,8 @@ function getNextVersion() {
     
     // Check if there are no new commits requiring a release
     if (output.includes('There are no relevant changes') || 
-        output.includes('no release')) {
+        output.includes('no release') ||
+        output.includes('skip release')) {
       log('No new version to release - no relevant changes found');
       return null;
     }
@@ -54,16 +62,21 @@ function getNextVersion() {
     // Check if error output contains version info
     const errorOutput = err.stderr?.toString() || err.stdout?.toString() || err.message || '';
     
+    log('Error output from semantic-release:');
+    console.log(errorOutput);
+    
     const versionMatch = errorOutput.match(/Published release (\d+\.\d+\.\d+)/i) ||
                          errorOutput.match(/next release version is (\d+\.\d+\.\d+)/i) ||
-                         errorOutput.match(/The next release version is (\d+\.\d+\.\d+)/i);
+                         errorOutput.match(/The next release version is (\d+\.\d+\.\d+)/i) ||
+                         errorOutput.match(/Release version (\d+\.\d+\.\d+)/i);
     
     if (versionMatch) {
       return versionMatch[1];
     }
     
     if (errorOutput.includes('There are no relevant changes') || 
-        errorOutput.includes('no release')) {
+        errorOutput.includes('no release') ||
+        errorOutput.includes('skip release')) {
       log('No new version to release - no relevant changes found');
       return null;
     }

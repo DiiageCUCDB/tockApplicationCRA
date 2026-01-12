@@ -94,21 +94,27 @@ jobs:
         run: node .github/scripts/prepare-version.js
 
 
-      - name: Commit version updates
+      - name: Upload updated version files
 
         if: steps.version-check.outputs.has_new_version == 'true'
 
-        run: |
+        uses: actions/upload-artifact@v4
 
-          git config --global user.name 'github-actions[bot]'
+        with:
 
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          name: version-files
 
-          git add tock-ui/package.json tock-ui/src-tauri/Cargo.toml tock-ui/src-tauri/tauri.conf.json
+          path: |
 
-          git commit -m "chore: update version to ${{ steps.version-check.outputs.version }} [skip ci]" || echo "No changes to commit"
+            tock-ui/package.json
 
-          git push || echo "No changes to push"
+            tock-ui/src-tauri/Cargo.toml
+
+            tock-ui/src-tauri/tauri.conf.json
+
+          retention-days: 1
+
+          include-hidden-files: false
 
 
       - name: Upload update JSON
@@ -178,6 +184,38 @@ jobs:
         with:
 
           fetch-depth: 0
+
+          ref: ${{ github.ref }}
+
+
+      - name: Download updated version files
+
+        if: needs.prepare-version.outputs.has_new_version == 'true'
+
+        uses: actions/download-artifact@v4
+
+        with:
+
+          name: version-files
+
+          path: .
+
+
+      - name: Verify version files
+
+        if: needs.prepare-version.outputs.has_new_version == 'true'
+
+        run: |
+
+          echo "Checking updated version files..."
+
+          ls -la tock-ui/
+
+          cat tock-ui/package.json | grep version
+
+          cat tock-ui/src-tauri/Cargo.toml | grep "^version"
+
+          cat tock-ui/src-tauri/tauri.conf.json | grep version
 
 
 
