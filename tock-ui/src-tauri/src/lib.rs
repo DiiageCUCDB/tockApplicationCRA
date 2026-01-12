@@ -320,6 +320,8 @@ fn check_tock_installed() -> CommandResult {
 
 #[tauri::command]
 fn auto_install_tock() -> CommandResult {
+    const GO_INSTALL_SUCCESS_MSG: &str = "Tock installed successfully via Go. You may need to restart the application or add Go's bin directory to your PATH.";
+    
     // First check if tock is already installed
     let check_result = check_tock_installed();
     if check_result.success {
@@ -431,7 +433,7 @@ fn auto_install_tock() -> CommandResult {
             Ok(output) if output.status.success() => {
                 CommandResult {
                     success: true,
-                    output: "Tock installed successfully via Go. You may need to restart the application or add Go's bin directory to your PATH.".to_string(),
+                    output: GO_INSTALL_SUCCESS_MSG.to_string(),
                     error: None,
                 }
             }
@@ -480,7 +482,7 @@ fn auto_install_tock() -> CommandResult {
             Ok(output) if output.status.success() => {
                 CommandResult {
                     success: true,
-                    output: "Tock installed successfully via Go. You may need to restart the application or add Go's bin directory to your PATH.".to_string(),
+                    output: GO_INSTALL_SUCCESS_MSG.to_string(),
                     error: None,
                 }
             }

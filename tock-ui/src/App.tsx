@@ -7,6 +7,8 @@ import { HistoryTab } from "./components/HistoryTab";
 import { SettingsTab } from "./components/SettingsTab";
 
 function App() {
+  const INSTALLATION_CHECK_DELAY = 2000; // ms - delay before rechecking installation after auto-install
+  
   const [activeTab, setActiveTab] = useState<string>("activity");
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [tockInstalled, setTockInstalled] = useState<boolean | null>(null);
@@ -45,7 +47,7 @@ function App() {
         // Wait a moment then check installation again
         setTimeout(async () => {
           await checkInstallation();
-        }, 2000);
+        }, INSTALLATION_CHECK_DELAY);
       } else {
         setMessage({ type: "error", text: result.error || "Installation failed" });
       }
