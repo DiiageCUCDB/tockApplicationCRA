@@ -105,9 +105,33 @@ function updateCargoToml(version) {
   const cargoTomlPath = path.join(TOCK_UI_DIR, 'src-tauri', 'Cargo.toml');
   log(`Updating ${cargoTomlPath} to version ${version}`);
   
+  // Check if file exists
+  if (!fs.existsSync(cargoTomlPath)) {
+    error(`Cargo.toml not found at: ${cargoTomlPath}`);
+    throw new Error(`Cargo.toml not found at: ${cargoTomlPath}`);
+  }
+  
   let content = fs.readFileSync(cargoTomlPath, 'utf-8');
-  content = content.replace(/^version = ".*"/m, `version = "${version}"`);
-  fs.writeFileSync(cargoTomlPath, content);
+  log(`Original Cargo.toml content (first few lines):`);
+  console.log(content.split('\n').slice(0, 10).join('\n'));
+  
+  // Update version line
+  const updatedContent = content.replace(/^version = ".*"/m, `version = "${version}"`);
+  
+  if (content === updatedContent) {
+    error('Failed to update version in Cargo.toml');
+    error(`Content before: ${content.match(/^version = ".*"/m)}`);
+    error(`Expected: version = "${version}"`);
+    throw new Error('Failed to update version in Cargo.toml');
+  }
+  
+  fs.writeFileSync(cargoTomlPath, updatedContent);
+  log(`Successfully updated Cargo.toml to version ${version}`);
+  
+  // Verify the update
+  const verifyContent = fs.readFileSync(cargoTomlPath, 'utf-8');
+  const versionLine = verifyContent.match(/^version = ".*"/m);
+  log(`Verified Cargo.toml version line: ${versionLine}`);
 }
 
 /**
@@ -117,9 +141,22 @@ function updateTauriConfig(version) {
   const tauriConfigPath = path.join(TOCK_UI_DIR, 'src-tauri', 'tauri.conf.json');
   log(`Updating ${tauriConfigPath} to version ${version}`);
   
+  // Check if file exists
+  if (!fs.existsSync(tauriConfigPath)) {
+    error(`tauri.conf.json not found at: ${tauriConfigPath}`);
+    throw new Error(`tauri.conf.json not found at: ${tauriConfigPath}`);
+  }
+  
   const config = JSON.parse(fs.readFileSync(tauriConfigPath, 'utf-8'));
+  log(`Original tauri.conf.json version: ${config.version}`);
+  
   config.version = version;
   fs.writeFileSync(tauriConfigPath, JSON.stringify(config, null, 2) + '\n');
+  log(`Successfully updated tauri.conf.json to version ${version}`);
+  
+  // Verify the update
+  const verifyConfig = JSON.parse(fs.readFileSync(tauriConfigPath, 'utf-8'));
+  log(`Verified tauri.conf.json version: ${verifyConfig.version}`);
 }
 
 /**
@@ -187,13 +224,27 @@ function setOutput(name, value) {
     log(`Output: ${name}=${value}`);
   }
 }
-
 /**
  * Main execution
  */
 function main() {
   try {
     log('Starting version preparation...');
+    log(`Working directory: ${TOCK_UI_DIR}`);
+    
+    // List files to verify structure
+    log('Directory structure:');
+    try {
+      const files = fs.readdirSync(TOCK_UI_DIR);
+      console.log(files);
+      
+      if (fs.existsSync(path.join(TOCK_UI_DIR, 'src-tauri'))) {
+        const tauriFiles = fs.readdirSync(path.join(TOCK_UI_DIR, 'src-tauri'));
+        console.log('src-tauri contents:', tauriFiles);
+      }
+    } catch (err) {
+      log(`Error listing files: ${err.message}`);
+    }
     
     const nextVersion = getNextVersion();
     
@@ -206,10 +257,22 @@ function main() {
     
     log(`Next version detected: ${nextVersion}`);
     
-    // Update all version files
+    // Update all version files with verification
     updatePackageJson(nextVersion);
     updateCargoToml(nextVersion);
     updateTauriConfig(nextVersion);
+    
+    // Verify all files after update
+    log('=== Final verification ===');
+    const finalPackageJson = JSON.parse(fs.readFileSync(path.join(TOCK_UI_DIR, 'package.json'), 'utf-8'));
+    log(`package.json version: ${finalPackageJson.version}`);
+    
+    const cargoContent = fs.readFileSync(path.join(TOCK_UI_DIR, 'src-tauri', 'Cargo.toml'), 'utf-8');
+    const cargoVersion = cargoContent.match(/^version = "(.*)"/m);
+    log(`Cargo.toml version: ${cargoVersion ? cargoVersion[1] : 'NOT FOUND'}`);
+    
+    const tauriConfig = JSON.parse(fs.readFileSync(path.join(TOCK_UI_DIR, 'src-tauri', 'tauri.conf.json'), 'utf-8'));
+    log(`tauri.conf.json version: ${tauriConfig.version}`);
     
     // Generate autoupdate JSON
     const updateJsonPath = generateUpdateJson(nextVersion);
@@ -222,6 +285,7 @@ function main() {
     log(`Version preparation complete: v${nextVersion}`);
   } catch (err) {
     error(`Version preparation failed: ${err.message}`);
+    error(err.stack);
     process.exit(1);
   }
 }
