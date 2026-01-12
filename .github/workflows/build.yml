@@ -382,6 +382,30 @@ jobs:
 
 
 
+      - name: Download updated version files
+
+        uses: actions/download-artifact@v4
+
+        with:
+
+          name: version-files
+
+          path: .
+
+
+      - name: Verify version files for release
+
+        run: |
+
+          echo "Version files for semantic-release:"
+
+          cat tock-ui/package.json | grep version
+
+          cat tock-ui/src-tauri/Cargo.toml | grep "^version"
+
+          cat tock-ui/src-tauri/tauri.conf.json | grep version
+
+
       - name: Download all build artifacts
 
         uses: actions/download-artifact@v4
