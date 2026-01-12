@@ -96,6 +96,41 @@ jobs:
           name: version-files
           path: .
 
+      - name: Apply updated version files
+        if: needs.prepare-version.outputs.has_new_version == 'true'
+        shell: bash
+        run: |
+          echo "Applying updated version files..."
+          
+          # Check if we have updated files
+          if [ -f "downloaded-files/tock-ui/package.json" ]; then
+            echo "Updating package.json..."
+            cp downloaded-files/tock-ui/package.json tock-ui/package.json
+          fi
+          
+          if [ -f "downloaded-files/tock-ui/src-tauri/Cargo.toml" ]; then
+            echo "Updating Cargo.toml..."
+            mkdir -p tock-ui/src-tauri
+            cp downloaded-files/tock-ui/src-tauri/Cargo.toml tock-ui/src-tauri/Cargo.toml
+          fi
+          
+          if [ -f "downloaded-files/tock-ui/src-tauri/tauri.conf.json" ]; then
+            echo "Updating tauri.conf.json..."
+            mkdir -p tock-ui/src-tauri
+            cp downloaded-files/tock-ui/src-tauri/tauri.conf.json tock-ui/src-tauri/tauri.conf.json
+          fi
+          
+          # Verify the updates
+          echo "=== Verify updated versions ==="
+          echo "package.json version:"
+          grep -A 1 '"version"' tock-ui/package.json
+          echo ""
+          echo "Cargo.toml version:"
+          grep '^version' tock-ui/src-tauri/Cargo.toml
+          echo ""
+          echo "tauri.conf.json version:"
+          grep '"version"' tock-ui/src-tauri/tauri.conf.json
+
       - name: Verify version files
         if: needs.prepare-version.outputs.has_new_version == 'true'
         shell: bash
