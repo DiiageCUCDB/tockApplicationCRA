@@ -117,26 +117,60 @@ pub struct CommandResult {
 
 // Execute tock command with arguments
 fn execute_tock_command(args: Vec<&str>) -> CommandResult {
-    let output = Command::new("tock")
-        .args(&args)
-        .output();
+    // On Windows, use platform-specific optimizations to reduce command execution time
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        
+        let output = Command::new("tock")
+            .args(&args)
+            .creation_flags(CREATE_NO_WINDOW) // Prevent console window from flashing
+            .output();
 
-    match output {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-            
-            CommandResult {
-                success: output.status.success(),
-                output: stdout,
-                error: if stderr.is_empty() { None } else { Some(stderr) },
+        match output {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                
+                CommandResult {
+                    success: output.status.success(),
+                    output: stdout,
+                    error: if stderr.is_empty() { None } else { Some(stderr) },
+                }
             }
+            Err(e) => CommandResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("Failed to execute tock command: {}. Make sure tock is installed and in your PATH.", e)),
+            },
         }
-        Err(e) => CommandResult {
-            success: false,
-            output: String::new(),
-            error: Some(format!("Failed to execute tock command: {}. Make sure tock is installed and in your PATH.", e)),
-        },
+    }
+
+    // On Unix-like systems, use the standard approach
+    #[cfg(not(target_os = "windows"))]
+    {
+        let output = Command::new("tock")
+            .args(&args)
+            .output();
+
+        match output {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                
+                CommandResult {
+                    success: output.status.success(),
+                    output: stdout,
+                    error: if stderr.is_empty() { None } else { Some(stderr) },
+                }
+            }
+            Err(e) => CommandResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("Failed to execute tock command: {}. Make sure tock is installed and in your PATH.", e)),
+            },
+        }
     }
 }
 
