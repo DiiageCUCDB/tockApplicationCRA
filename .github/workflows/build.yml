@@ -96,36 +96,19 @@ jobs:
           name: version-files
           path: .
 
-      - name: Verify version files (Cross-platform)
+      - name: Verify version files
         if: needs.prepare-version.outputs.has_new_version == 'true'
+        shell: bash
         run: |
           echo "Checking updated version files..."
           echo "=== Directory Contents ==="
-          # Cross-platform directory listing
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            dir tock-ui/
-          else
-            ls -la tock-ui/
-          fi
+          ls -la tock-ui/
           echo "=== package.json version ==="
-          # Use cross-platform grep or findstr on Windows
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            findstr "version" tock-ui/package.json
-          else
-            grep version tock-ui/package.json
-          fi
+          grep version tock-ui/package.json
           echo "=== Cargo.toml version ==="
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            findstr "^version" tock-ui/src-tauri/Cargo.toml
-          else
-            grep "^version" tock-ui/src-tauri/Cargo.toml
-          fi
+          grep "^version" tock-ui/src-tauri/Cargo.toml
           echo "=== tauri.conf.json version ==="
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            findstr "version" tock-ui/src-tauri/tauri.conf.json
-          else
-            grep version tock-ui/src-tauri/tauri.conf.json
-          fi
+          grep version tock-ui/src-tauri/tauri.conf.json
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
