@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/DiiageCUCDB/tockApplicationCRA/compare/v1.6.0...v1.7.0) (2026-01-12)
+
+
+### Features
+
+* Simplify main function by removing Tauri builder and using tock_ui_lib ([fba45e9](https://github.com/DiiageCUCDB/tockApplicationCRA/commit/fba45e90066d58bb525e192fa16a21fada771bb4))
+
 # [1.6.0](https://github.com/DiiageCUCDB/tockApplicationCRA/compare/v1.5.0...v1.6.0) (2026-01-12)
 
 
