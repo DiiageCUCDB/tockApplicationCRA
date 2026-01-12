@@ -37,7 +37,113 @@ permissions:
 
 jobs:
 
+  prepare-version:
+
+    runs-on: ubuntu-latest
+
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+
+    outputs:
+
+      has_new_version: ${{ steps.version-check.outputs.has_new_version }}
+
+      version: ${{ steps.version-check.outputs.version }}
+
+      update_json_path: ${{ steps.version-check.outputs.update_json_path }}
+
+
+    steps:
+
+      - name: Checkout repository
+
+        uses: actions/checkout@v4
+
+        with:
+
+          fetch-depth: 0
+
+
+      - name: Setup Node.js
+
+        uses: actions/setup-node@v4
+
+        with:
+
+          node-version: '22'
+
+          cache: 'npm'
+
+          cache-dependency-path: 'tock-ui/package-lock.json'
+
+
+      - name: Install dependencies
+
+        working-directory: ./tock-ui
+
+        run: npm ci
+
+
+      - name: Detect version and update files
+
+        id: version-check
+
+        env:
+
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+        run: node .github/scripts/prepare-version.js
+
+
+      - name: Upload updated version files
+
+        if: steps.version-check.outputs.has_new_version == 'true'
+
+        uses: actions/upload-artifact@v4
+
+        with:
+
+          name: version-files
+
+          path: |
+
+            tock-ui/package.json
+
+            tock-ui/src-tauri/Cargo.toml
+
+            tock-ui/src-tauri/tauri.conf.json
+
+          retention-days: 1
+
+          include-hidden-files: false
+
+
+      - name: Upload update JSON
+
+        if: steps.version-check.outputs.has_new_version == 'true'
+
+        uses: actions/upload-artifact@v4
+
+        with:
+
+          name: update-json
+
+          path: tock-ui/dist/latest.json
+
+          retention-days: 7
+
+
+
   build-and-release:
+
+    needs: prepare-version
+
+    if: |
+
+      always() &&
+
+      (needs.prepare-version.result == 'success' || needs.prepare-version.result == 'skipped') &&
+
+      !cancelled()
 
     strategy:
 
@@ -80,6 +186,38 @@ jobs:
         with:
 
           fetch-depth: 0
+
+          ref: ${{ github.ref }}
+
+
+      - name: Download updated version files
+
+        if: needs.prepare-version.outputs.has_new_version == 'true'
+
+        uses: actions/download-artifact@v4
+
+        with:
+
+          name: version-files
+
+          path: .
+
+
+      - name: Verify version files
+
+        if: needs.prepare-version.outputs.has_new_version == 'true'
+
+        run: |
+
+          echo "Checking updated version files..."
+
+          ls -la tock-ui/
+
+          cat tock-ui/package.json | grep version
+
+          cat tock-ui/src-tauri/Cargo.toml | grep "^version"
+
+          cat tock-ui/src-tauri/tauri.conf.json | grep version
 
 
 
@@ -179,11 +317,11 @@ jobs:
 
   semantic-release:
 
-    needs: build-and-release
+    needs: [prepare-version, build-and-release]
 
     runs-on: ubuntu-latest
 
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && needs.prepare-version.outputs.has_new_version == 'true'
 
 
 
@@ -240,6 +378,30 @@ jobs:
 
 
 
+      - name: Download updated version files
+
+        uses: actions/download-artifact@v4
+
+        with:
+
+          name: version-files
+
+          path: .
+
+
+      - name: Verify version files for release
+
+        run: |
+
+          echo "Version files for semantic-release:"
+
+          cat tock-ui/package.json | grep version
+
+          cat tock-ui/src-tauri/Cargo.toml | grep "^version"
+
+          cat tock-ui/src-tauri/tauri.conf.json | grep version
+
+
       - name: Download all build artifacts
 
         uses: actions/download-artifact@v4
@@ -247,6 +409,17 @@ jobs:
         with:
 
           path: dist-artifacts
+
+
+      - name: Download update JSON
+
+        uses: actions/download-artifact@v4
+
+        with:
+
+          name: update-json
+
+          path: update-json
 
 
 
@@ -258,10 +431,15 @@ jobs:
           mkdir -p release-artifacts
 
 
-
           find dist-artifacts -type f \( -name "*.deb" -o -name "*.AppImage" -o -name "*.msi" -o -name "*.exe" \) \
 
             -exec cp {} release-artifacts/ \;
+
+          
+
+          # Copy update JSON to release artifacts
+
+          cp update-json/latest.json release-artifacts/
 
 
           echo "Artifacts ready:"
