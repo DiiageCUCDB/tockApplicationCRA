@@ -1,5 +1,5 @@
 # Tock Application - Cross-Platform Time Tracker UI
-
+ 
 A beautiful, cross-platform desktop GUI application for the [Tock CLI](https://github.com/kriuchkov/tock) time tracking tool.
 
 Built with **Rust**, **Tauri**, and **React** for maximum performance and minimal resource usage.
