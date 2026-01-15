@@ -576,11 +576,11 @@ fn get_activities_for_month(year: u32, month: u32) -> CommandResult {
             let cache_valid = if month_diff == 0 {
                 // Current month: cache for 1 month (30 days)
                 cache_age.num_days() < 30
-            } else if month_diff > 2 || month_diff < -2 {
-                // Past months with gap > 2: cache for 7 days
+            } else if month_diff.abs() < 2 {
+                // Recent past/future months (gap < 2 months): cache for 7 days
                 cache_age.num_days() < 7
             } else {
-                // Recent past/future months (within 2 months): cache for 1 hour
+                // Older months (gap >= 2 months): cache for 1 hour
                 cache_age.num_hours() < 1
             };
             
