@@ -197,6 +197,17 @@ fn execute_tock_command_cached(args: Vec<&str>, use_cache: bool) -> CommandResul
     }
 }
 
+// Helper function to invalidate both in-memory and database caches
+fn invalidate_all_caches() {
+    // Invalidate in-memory cache
+    get_cache().invalidate();
+    
+    // Invalidate database calendar cache
+    if let Err(e) = get_db().clear_all_calendar_cache() {
+        eprintln!("Warning: Failed to clear calendar cache from database: {}", e);
+    }
+}
+
 #[tauri::command]
 fn start_activity(project: String, description: String, time: Option<String>) -> CommandResult {
     let mut args = vec!["start", "-p", &project, "-d", &description];
@@ -210,7 +221,7 @@ fn start_activity(project: String, description: String, time: Option<String>) ->
     
     // Invalidate cache on successful write operation
     if result.success {
-        get_cache().invalidate();
+        invalidate_all_caches();
     }
     
     result
@@ -229,7 +240,7 @@ fn stop_activity(time: Option<String>) -> CommandResult {
     
     // Invalidate cache on successful write operation
     if result.success {
-        get_cache().invalidate();
+        invalidate_all_caches();
     }
     
     result
@@ -251,7 +262,7 @@ fn add_activity(project: String, description: String, start: String, end: Option
     
     // Invalidate cache on successful write operation
     if result.success {
-        get_cache().invalidate();
+        invalidate_all_caches();
     }
     
     result
@@ -286,7 +297,7 @@ fn continue_activity(index: Option<u32>, description: Option<String>, project: O
     
     // Invalidate cache on successful write operation
     if result.success {
-        get_cache().invalidate();
+        invalidate_all_caches();
     }
     
     result
@@ -543,6 +554,35 @@ fn get_activities_for_month(year: u32, month: u32) -> CommandResult {
         };
     }
     
+    // Format year-month for database cache key
+    let year_month = format!("{:04}-{:02}", year, month);
+    
+    // Check database calendar cache first for persistent caching
+    if let Ok(Some(cache_entry)) = get_db().get_calendar_cache(&year_month) {
+        // Parse cached_at timestamp to check if cache is still valid
+        if let Ok(cached_at) = chrono::DateTime::parse_from_rfc3339(&cache_entry.cached_at) {
+            let now = chrono::Local::now();
+            let cache_age = now.signed_duration_since(cached_at);
+            
+            // For current month, cache for 1 hour; for past/future months, cache indefinitely
+            let current_month = now.format("%Y-%m").to_string();
+            let is_current_month = year_month == current_month;
+            let cache_valid = if is_current_month {
+                cache_age.num_hours() < 1
+            } else {
+                true // Past/future months don't change, cache indefinitely
+            };
+            
+            if cache_valid {
+                return CommandResult {
+                    success: true,
+                    output: cache_entry.data,
+                    error: None,
+                };
+            }
+        }
+    }
+    
     // Calculate the start and end dates of the month
     let first_day = match NaiveDate::from_ymd_opt(year as i32, month, 1) {
         Some(date) => date,
@@ -582,12 +622,6 @@ fn get_activities_for_month(year: u32, month: u32) -> CommandResult {
         }
     };
     
-    // Use caching for month reports
-    let cache_key = format!("month_report_{}_{}", year, month);
-    if let Some(cached_result) = get_cache().get(&cache_key) {
-        return cached_result;
-    }
-    
     // Fetch all activities for each day in the month and aggregate
     let mut all_outputs = Vec::new();
     let mut current_date = first_day;
@@ -619,20 +653,16 @@ fn get_activities_for_month(year: u32, month: u32) -> CommandResult {
         all_outputs.join("\n\n")
     };
     
-    let result = CommandResult {
+    // Save to database calendar cache for persistent caching
+    if let Err(e) = get_db().save_calendar_cache(&year_month, &combined_output) {
+        eprintln!("Warning: Failed to save calendar cache to database: {}", e);
+    }
+    
+    CommandResult {
         success: true,
         output: combined_output,
         error: None,
-    };
-    
-    // Cache the result
-    get_cache().set(cache_key, CommandResult {
-        success: result.success,
-        output: result.output.clone(),
-        error: result.error.clone(),
-    });
-    
-    result
+    }
 }
 
 #[tauri::command]

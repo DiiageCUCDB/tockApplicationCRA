@@ -445,6 +445,12 @@ impl Database {
         Ok(())
     }
     
+    pub fn clear_all_calendar_cache(&self) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM calendar_cache", [])?;
+        Ok(())
+    }
+    
     pub fn get_cached_projects(&self, api_route_id: Option<i64>) -> SqlResult<Vec<CachedProject>> {
         let conn = self.conn.lock().unwrap();
         
