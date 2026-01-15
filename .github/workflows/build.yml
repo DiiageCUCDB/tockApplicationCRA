@@ -262,11 +262,13 @@ jobs:
       - name: Get package version
         id: package-version
         working-directory: ./tock-ui
+        shell: bash
         run: |
           VERSION=$(node -p "require('./package.json').version")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Prepare artifacts for upload
+        shell: bash
         run: |
           # Create artifacts directory with platform-specific structure
           mkdir -p artifacts/${{ matrix.os_name }}
