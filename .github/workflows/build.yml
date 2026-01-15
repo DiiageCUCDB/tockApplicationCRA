@@ -292,19 +292,19 @@ jobs:
             "platforms": {
               "linux-x86_64": {
                 "signature": "",
-                "url": "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/tock-ui_${VERSION}_amd64.AppImage"
+                "url": "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Tock.UI_${VERSION}_amd64.AppImage"
               },
               "darwin-x86_64": {
                 "signature": "",
-                "url": "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/tock-ui_${VERSION}_x64.dmg"
+                "url": "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Tock.UI_${VERSION}_x64.dmg"
               },
               "darwin-aarch64": {
                 "signature": "",
-                "url": "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/tock-ui_${VERSION}_aarch64.dmg"
+                "url": "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Tock.UI_${VERSION}_aarch64.dmg"
               },
               "windows-x86_64": {
                 "signature": "",
-                "url": "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/tock-ui_${VERSION}_x64.msi"
+                "url": "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Tock.UI_${VERSION}_x64_en-US.msi"
               }
             }
           }
