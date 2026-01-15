@@ -35,12 +35,12 @@ The optimization is applied to:
 ### Benchmarks
 **Estimated** performance improvements on Windows 10/11 (based on typical Windows process creation overhead):
 
-| Operation | Before (est.) | After (est.) | Improvement |
-|-----------|--------|-------|-------------|
-| Start activity | ~150ms | ~60ms | 60% faster |
-| Stop activity | ~140ms | ~55ms | 61% faster |
-| Get current | ~120ms | ~50ms | 58% faster |
-| Get report | ~200ms | ~80ms | 60% faster |
+| Operation      | Before (est.) | After (est.) | Improvement |
+|----------------|---------------|--------------|-------------|
+| Start activity | ~150ms        | ~60ms        | 60% faster  |
+| Stop activity  | ~140ms        | ~55ms        | 61% faster  |
+| Get current    | ~120ms        | ~50ms        | 58% faster  |
+| Get report     | ~200ms        | ~80ms        | 60% faster  |
 
 **Note:** These are estimated improvements based on typical Windows process creation overhead reduction when using CREATE_NO_WINDOW flag. Actual performance will vary based on:
 - System hardware (CPU, disk speed)
