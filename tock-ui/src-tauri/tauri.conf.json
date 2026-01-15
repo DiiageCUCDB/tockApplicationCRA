@@ -52,10 +52,10 @@
     "updater": {
       "active": true,
       "endpoints": [
-        "https://github.com/ClementBobin/tockApplicationCRA/releases/latest/download/latest.json"
+        "https://github.com/DiiageCUCDB/tockApplicationCRA/releases/latest/download/latest.json"
       ],
       "dialog": false,
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU4NkY0NDg3QjkyNTFBRjIKUldUeUdpVzVoMFJ2NkJhQzBIQ0xPWkJUdFFYWmwxR0o0WXN0RnVORkFDWkphbU9DK3lUZE9zMVoK"
+      "pubkey": ""
     }
   }
 }
