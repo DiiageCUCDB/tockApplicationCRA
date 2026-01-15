@@ -59,7 +59,7 @@ jobs:
             tock-ui/src-tauri/tauri.conf.json
           retention-days: 1
 
-  build-and-release:  # This line should be indented to align with 'prepare-version:'
+  build-and-release:
     needs: prepare-version
     if: |
       always() &&
@@ -71,14 +71,17 @@ jobs:
       matrix:
         include:
           - platform: 'ubuntu-22.04'
+            os_name: 'linux'  # Fixed: changed from matrix.os_name
             args: ''
-            artifact_name: 'linux'
+            artifact_name: 'linux-artifacts'
           - platform: 'windows-latest'
+            os_name: 'windows'  # Fixed: changed from matrix.os_name
             args: ''
-            artifact_name: 'windows'
+            artifact_name: 'windows-artifacts'
           - platform: 'macos-latest'
+            os_name: 'macos'  # Fixed: changed from matrix.os_name
             args: ''
-            artifact_name: 'macos'
+            artifact_name: 'macos-artifacts'
     
     runs-on: ${{ matrix.platform }}
 
@@ -266,37 +269,12 @@ jobs:
         run: |
           VERSION=$(node -p "require('./package.json').version")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-      - name: Prepare artifacts for upload
-        shell: bash
-        run: |
-          # Create artifacts directory with platform-specific structure
-          mkdir -p artifacts/${{ matrix.os_name }}
-
-          # Copy built files to artifacts directory (installers and updater files)
-          if [ "${{ matrix.os_name }}" = "linux" ]; then
-            cp tock-ui/src-tauri/target/release/bundle/appimage/*.AppImage artifacts/linux/ 2>/dev/null || true
-            cp tock-ui/src-tauri/target/release/bundle/appimage/*.AppImage.tar.gz artifacts/linux/ 2>/dev/null || true
-            cp tock-ui/src-tauri/target/release/bundle/appimage/*.AppImage.tar.gz.sig artifacts/linux/ 2>/dev/null || true
-            cp tock-ui/src-tauri/target/release/bundle/deb/*.deb artifacts/linux/ 2>/dev/null || true
-          elif [ "${{ matrix.os_name }}" = "windows" ]; then
-            cp tock-ui/src-tauri/target/release/bundle/msi/*.msi artifacts/windows/ 2>/dev/null || true
-            cp tock-ui/src-tauri/target/release/bundle/nsis/*.exe artifacts/windows/ 2>/dev/null || true
-            cp tock-ui/src-tauri/target/release/bundle/nsis/*.nsis.zip artifacts/windows/ 2>/dev/null || true
-            cp tock-ui/src-tauri/target/release/bundle/nsis/*.nsis.zip.sig artifacts/windows/ 2>/dev/null || true
-          elif [ "${{ matrix.os_name }}" = "macos" ]; then
-            cp tock-ui/src-tauri/target/release/bundle/dmg/*.dmg artifacts/macos/ 2>/dev/null || true
-            cp tock-ui/src-tauri/target/release/bundle/macos/*.app.tar.gz artifacts/macos/ 2>/dev/null || true
-            cp tock-ui/src-tauri/target/release/bundle/macos/*.app.tar.gz.sig artifacts/macos/ 2>/dev/null || true
-          fi
-
-          # Save version info
-          echo "${{ steps.package-version.outputs.version }}" > artifacts/version.txt
+          echo "version_number=$VERSION" >> $GITHUB_ENV
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}-artifacts
+          name: ${{ matrix.artifact_name }}
           path: |
             tock-ui/src-tauri/target/release/bundle/
           retention-days: 7
@@ -305,6 +283,7 @@ jobs:
     needs: [prepare-version, build-and-release]
     runs-on: ubuntu-latest
     if: needs.prepare-version.outputs.has_new_version == 'true'
+    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -317,103 +296,103 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
-      - name: Download updated version files
+      - name: Get version from previous job
+        id: version-info
+        run: |
+          echo "version=${{ needs.prepare-version.outputs.version }}" >> $GITHUB_OUTPUT
+
+      - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: version-files
-          path: ./downloaded-version-files
+          path: build-artifacts
 
-      - name: Download all build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: dist-artifacts
-
-      - name: Debug downloaded files
+      - name: Debug downloaded artifacts
         shell: bash
         run: |
-          echo "=== Downloaded files structure ==="
-          find downloaded-version-files -type f | sort
+          echo "=== Downloaded artifacts structure ==="
+          find build-artifacts -type f | sort
           echo ""
-          echo "=== Checking package.json ==="
-          PACKAGE_JSON_PATH=$(find downloaded-version-files -name "package.json" -type f | head -1)
-          if [ -n "$PACKAGE_JSON_PATH" ] && [ -f "$PACKAGE_JSON_PATH" ]; then
-            echo "Found package.json at: $PACKAGE_JSON_PATH"
-            echo "Content:"
-            cat "$PACKAGE_JSON_PATH" | grep -A 1 '"version"'
-          else
-            echo "ERROR: package.json not found!"
-          fi
-
-      - name: Create update JSON
-        shell: bash
-        run: |
-          # Extract the new version from the downloaded package.json
-          echo "Looking for package.json..."
-          PACKAGE_JSON_PATH=$(find downloaded-version-files -name "package.json" -type f | head -1)
-          
-          if [ -z "$PACKAGE_JSON_PATH" ] || [ ! -f "$PACKAGE_JSON_PATH" ]; then
-            echo "ERROR: Could not find package.json in downloaded files"
-            find downloaded-version-files -type f
-            exit 1
-          fi
-          echo "release_notes<<EOF" >> $GITHUB_OUTPUT
-          echo "$RELEASE_NOTES" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          echo "=== Directory tree ==="
+          find build-artifacts -type d | sort
 
       - name: Create latest.json
         id: create-latest-json
+        env:
+          VERSION: ${{ needs.prepare-version.outputs.version }}
+        shell: bash
         run: |
-          # Find the updater files (.tar.gz for macOS/Linux, .nsis.zip for Windows)
-          WINDOWS_UPDATER=$(find dist-artifacts -type f -name "*.nsis.zip" ! -name "*.sig" | head -1)
-          MACOS_UPDATER=$(find dist-artifacts -type f -name "*.app.tar.gz" ! -name "*.sig" | head -1)
-          LINUX_UPDATER=$(find dist-artifacts -type f -name "*.AppImage.tar.gz" ! -name "*.sig" | head -1)
-
-          # Validate updater files exist
-          if [ -z "$WINDOWS_UPDATER" ] || [ ! -f "$WINDOWS_UPDATER" ]; then
+          # Create dist directory
+          mkdir -p tock-ui/dist
+          
+          # Search for updater files in all downloaded artifacts
+          echo "Searching for updater files..."
+          
+          # Windows updater (.nsis.zip)
+          WINDOWS_UPDATER=$(find build-artifacts -type f -name "*.nsis.zip" ! -name "*.sig" | head -1)
+          if [ -n "$WINDOWS_UPDATER" ] && [ -f "$WINDOWS_UPDATER" ]; then
+            echo "Found Windows updater: $WINDOWS_UPDATER"
+            WINDOWS_FILENAME=$(basename "$WINDOWS_UPDATER")
+          else
             echo "Error: Windows updater file not found"
+            find build-artifacts -type f -name "*.zip" | head -5
             exit 1
           fi
-
-          if [ -z "$MACOS_UPDATER" ] || [ ! -f "$MACOS_UPDATER" ]; then
+          
+          # macOS updater (.app.tar.gz)
+          MACOS_UPDATER=$(find build-artifacts -type f -name "*.app.tar.gz" ! -name "*.sig" | head -1)
+          if [ -n "$MACOS_UPDATER" ] && [ -f "$MACOS_UPDATER" ]; then
+            echo "Found macOS updater: $MACOS_UPDATER"
+            MACOS_FILENAME=$(basename "$MACOS_UPDATER")
+          else
             echo "Error: macOS updater file not found"
+            find build-artifacts -type f -name "*.tar.gz" | head -5
             exit 1
           fi
-
-          if [ -z "$LINUX_UPDATER" ] || [ ! -f "$LINUX_UPDATER" ]; then
+          
+          # Linux updater (.AppImage.tar.gz)
+          LINUX_UPDATER=$(find build-artifacts -type f -name "*.AppImage.tar.gz" ! -name "*.sig" | head -1)
+          if [ -n "$LINUX_UPDATER" ] && [ -f "$LINUX_UPDATER" ]; then
+            echo "Found Linux updater: $LINUX_UPDATER"
+            LINUX_FILENAME=$(basename "$LINUX_UPDATER")
+          else
             echo "Error: Linux updater file not found"
+            find build-artifacts -type f -name "*.AppImage*" | head -5
             exit 1
           fi
 
           # Find signature files
-          WINDOWS_SIG=$(find dist-artifacts -type f -name "*.nsis.zip.sig" | head -1)
-          MACOS_SIG=$(find dist-artifacts -type f -name "*.app.tar.gz.sig" | head -1)
-          LINUX_SIG=$(find dist-artifacts -type f -name "*.AppImage.tar.gz.sig" | head -1)
+          WINDOWS_SIG=$(find build-artifacts -type f -name "*.nsis.zip.sig" | head -1)
+          MACOS_SIG=$(find build-artifacts -type f -name "*.app.tar.gz.sig" | head -1)
+          LINUX_SIG=$(find build-artifacts -type f -name "*.AppImage.tar.gz.sig" | head -1)
 
-          # Read signature contents with validation
+          # Read signature contents
           WINDOWS_SIGNATURE=""
           MACOS_SIGNATURE=""
           LINUX_SIGNATURE=""
 
           if [ -f "$WINDOWS_SIG" ]; then
-            WINDOWS_SIGNATURE=$(cat "$WINDOWS_SIG")
+            WINDOWS_SIGNATURE=$(cat "$WINDOWS_SIG" | tr -d '\n' | sed 's/\"/\\"/g')
+            echo "Found Windows signature"
           else
-            echo "Warning: Windows signature file not found. Auto-update verification may fail."
+            echo "Warning: Windows signature file not found"
           fi
 
           if [ -f "$MACOS_SIG" ]; then
-            MACOS_SIGNATURE=$(cat "$MACOS_SIG")
+            MACOS_SIGNATURE=$(cat "$MACOS_SIG" | tr -d '\n' | sed 's/\"/\\"/g')
+            echo "Found macOS signature"
           else
-            echo "Warning: macOS signature file not found. Auto-update verification may fail."
+            echo "Warning: macOS signature file not found"
           fi
 
           if [ -f "$LINUX_SIG" ]; then
-            LINUX_SIGNATURE=$(cat "$LINUX_SIG")
+            LINUX_SIGNATURE=$(cat "$LINUX_SIG" | tr -d '\n' | sed 's/\"/\\"/g')
+            echo "Found Linux signature"
           else
-            echo "Warning: Linux signature file not found. Auto-update verification may fail."
+            echo "Warning: Linux signature file not found"
           fi
 
           # Create latest.json for auto-updates
-          cat > latest.json << EOF
+          cat > tock-ui/dist/latest.json << EOF
           {
             "version": "$VERSION",
             "notes": "Auto-generated release",
@@ -421,15 +400,15 @@ jobs:
             "platforms": {
               "windows-x86_64": {
                 "signature": "$WINDOWS_SIGNATURE",
-                "url": "https://github.com/${{ github.repository }}/releases/download/v${{ steps.version-info.outputs.version }}/$(basename "$WINDOWS_UPDATER")"
+                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/$WINDOWS_FILENAME"
               },
               "darwin-x86_64": {
                 "signature": "$MACOS_SIGNATURE",
-                "url": "https://github.com/${{ github.repository }}/releases/download/v${{ steps.version-info.outputs.version }}/$(basename "$MACOS_UPDATER")"
+                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/$MACOS_FILENAME"
               },
               "linux-x86_64": {
                 "signature": "$LINUX_SIGNATURE",
-                "url": "https://github.com/${{ github.repository }}/releases/download/v${{ steps.version-info.outputs.version }}/$(basename "$LINUX_UPDATER")"
+                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/$LINUX_FILENAME"
               }
             }
           }
@@ -477,7 +456,7 @@ jobs:
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
-          path: dist-artifacts
+          path: build-artifacts
 
       - name: Download update JSON
         uses: actions/download-artifact@v4
@@ -488,9 +467,19 @@ jobs:
       - name: Prepare artifacts for release
         run: |
           mkdir -p release-artifacts
-          # Copy all build artifacts
-          find dist-artifacts -type f \( -name "*.deb" -o -name "*.AppImage" -o -name "*.dmg" -o -name "*.msi" -o -name "*.exe" \) \
-            -exec cp {} release-artifacts/ \;
+          
+          # Copy all installer files (not updater files)
+          echo "Looking for installer files..."
+          
+          # Windows installers
+          find build-artifacts -type f \( -name "*.msi" -o -name "*.exe" \) ! -name "*.nsis.zip*" -exec cp {} release-artifacts/ \;
+          
+          # macOS installers
+          find build-artifacts -type f -name "*.dmg" ! -name "*.app.tar.gz*" -exec cp {} release-artifacts/ \;
+          
+          # Linux installers
+          find build-artifacts -type f \( -name "*.deb" -o -name "*.AppImage" \) ! -name "*.AppImage.tar.gz*" -exec cp {} release-artifacts/ \;
+          
           # Copy update JSON
           cp update-json/latest.json release-artifacts/
           
