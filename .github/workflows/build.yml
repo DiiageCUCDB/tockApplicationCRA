@@ -244,31 +244,23 @@ jobs:
         id: create-latest-json
         run: |
           # Find the updater files (.tar.gz for macOS/Linux, .nsis.zip for Windows)
-          WINDOWS_UPDATER=$(find dist-artifacts -name "*.nsis.zip" -type f ! -name "*.sig" | head -1)
-          MACOS_UPDATER=$(find dist-artifacts -name "*.app.tar.gz" -type f ! -name "*.sig" | head -1)
-          LINUX_UPDATER=$(find dist-artifacts -name "*.AppImage.tar.gz" -type f ! -name "*.sig" | head -1)
+          WINDOWS_UPDATER=$(find dist-artifacts -type f -name "*.nsis.zip" | grep -v "\.sig$" | head -1)
+          MACOS_UPDATER=$(find dist-artifacts -type f -name "*.app.tar.gz" | grep -v "\.sig$" | head -1)
+          LINUX_UPDATER=$(find dist-artifacts -type f -name "*.AppImage.tar.gz" | grep -v "\.sig$" | head -1)
 
           # Find signature files
-          WINDOWS_SIG=$(find dist-artifacts -name "*.nsis.zip.sig" -type f | head -1)
-          MACOS_SIG=$(find dist-artifacts -name "*.app.tar.gz.sig" -type f | head -1)
-          LINUX_SIG=$(find dist-artifacts -name "*.AppImage.tar.gz.sig" -type f | head -1)
+          WINDOWS_SIG=$(find dist-artifacts -type f -name "*.nsis.zip.sig" | head -1)
+          MACOS_SIG=$(find dist-artifacts -type f -name "*.app.tar.gz.sig" | head -1)
+          LINUX_SIG=$(find dist-artifacts -type f -name "*.AppImage.tar.gz.sig" | head -1)
 
           # Read signature contents
           WINDOWS_SIGNATURE=""
           MACOS_SIGNATURE=""
           LINUX_SIGNATURE=""
 
-          if [ -f "$WINDOWS_SIG" ]; then
-            WINDOWS_SIGNATURE=$(cat "$WINDOWS_SIG")
-          fi
-
-          if [ -f "$MACOS_SIG" ]; then
-            MACOS_SIGNATURE=$(cat "$MACOS_SIG")
-          fi
-
-          if [ -f "$LINUX_SIG" ]; then
-            LINUX_SIGNATURE=$(cat "$LINUX_SIG")
-          fi
+          [ -f "$WINDOWS_SIG" ] && WINDOWS_SIGNATURE=$(cat "$WINDOWS_SIG")
+          [ -f "$MACOS_SIG" ] && MACOS_SIGNATURE=$(cat "$MACOS_SIG")
+          [ -f "$LINUX_SIG" ] && LINUX_SIGNATURE=$(cat "$LINUX_SIG")
 
           # Create latest.json for auto-updates
           cat > latest.json << EOF
