@@ -126,33 +126,60 @@ pub struct CommandResult {
 
 // Execute tock command with arguments
 fn execute_tock_command(args: Vec<&str>) -> CommandResult {
-    let mut cmd = Command::new("tock");
-    cmd.args(&args);
-    
-    // Windows-specific optimizations to reduce process creation overhead
+    // On Windows, use platform-specific optimizations to reduce command execution time
     #[cfg(target_os = "windows")]
     {
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
-    
-    let output = cmd.output();
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        
+        let output = Command::new("tock")
+            .args(&args)
+            .creation_flags(CREATE_NO_WINDOW) // Prevent console window from flashing
+            .output();
 
-    match output {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-            
-            CommandResult {
-                success: output.status.success(),
-                output: stdout,
-                error: if stderr.is_empty() { None } else { Some(stderr) },
+        match output {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                
+                CommandResult {
+                    success: output.status.success(),
+                    output: stdout,
+                    error: if stderr.is_empty() { None } else { Some(stderr) },
+                }
             }
+            Err(e) => CommandResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("Failed to execute tock command: {}. Make sure tock is installed and in your PATH.", e)),
+            },
         }
-        Err(e) => CommandResult {
-            success: false,
-            output: String::new(),
-            error: Some(format!("Failed to execute tock command: {}. Make sure tock is installed and in your PATH.", e)),
-        },
+    }
+
+    // On Unix-like systems, use the standard approach
+    #[cfg(not(target_os = "windows"))]
+    {
+        let output = Command::new("tock")
+            .args(&args)
+            .output();
+
+        match output {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                
+                CommandResult {
+                    success: output.status.success(),
+                    output: stdout,
+                    error: if stderr.is_empty() { None } else { Some(stderr) },
+                }
+            }
+            Err(e) => CommandResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("Failed to execute tock command: {}. Make sure tock is installed and in your PATH.", e)),
+            },
+        }
     }
 }
 
@@ -338,6 +365,164 @@ fn check_tock_installed() -> CommandResult {
             output: String::new(),
             error: Some("Tock CLI is not installed or not in PATH. Please install tock first.".to_string()),
         },
+    }
+}
+
+// Helper function to install tock via Go
+fn install_tock_via_go(error_msg: &str) -> CommandResult {
+    const GO_INSTALL_SUCCESS_MSG: &str = "Tock installed successfully via Go. You may need to restart the application or add Go's bin directory to your PATH.";
+    
+    // First check if Go is installed
+    let go_check = Command::new("go")
+        .arg("version")
+        .output();
+    
+    if go_check.is_err() {
+        return CommandResult {
+            success: false,
+            output: String::new(),
+            error: Some(error_msg.to_string()),
+        };
+    }
+
+    // Install tock via go install
+    let install_result = Command::new("go")
+        .args(&["install", "github.com/kriuchkov/tock/cmd/tock@latest"])
+        .output();
+    
+    match install_result {
+        Ok(output) if output.status.success() => {
+            CommandResult {
+                success: true,
+                output: GO_INSTALL_SUCCESS_MSG.to_string(),
+                error: None,
+            }
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            CommandResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("Failed to install tock: {}", stderr)),
+            }
+        }
+        Err(e) => {
+            CommandResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("Failed to execute go install: {}", e)),
+            }
+        }
+    }
+}
+
+#[tauri::command]
+fn auto_install_tock() -> CommandResult {
+    // First check if tock is already installed
+    let check_result = check_tock_installed();
+    if check_result.success {
+        return CommandResult {
+            success: true,
+            output: "Tock is already installed".to_string(),
+            error: None,
+        };
+    }
+
+    // Detect the operating system
+    #[cfg(target_os = "macos")]
+    {
+        // Try installing via Homebrew on macOS
+        println!("Detected macOS - attempting to install via Homebrew");
+        
+        // First check if Homebrew is installed
+        let brew_check = Command::new("brew")
+            .arg("--version")
+            .output();
+        
+        if brew_check.is_err() {
+            return CommandResult {
+                success: false,
+                output: String::new(),
+                error: Some("Homebrew is not installed. Please install Homebrew first from https://brew.sh".to_string()),
+            };
+        }
+
+        // Add the tap
+        let tap_result = Command::new("brew")
+            .args(&["tap", "kriuchkov/tap"])
+            .output();
+        
+        match tap_result {
+            Ok(tap_output) if !tap_output.status.success() => {
+                let stderr = String::from_utf8_lossy(&tap_output.stderr).to_string();
+                return CommandResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!("Failed to add Homebrew tap: {}", stderr)),
+                };
+            }
+            Err(e) => {
+                return CommandResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!("Failed to execute brew tap: {}", e)),
+                };
+            }
+            _ => {}
+        }
+
+        // Install tock
+        let install_result = Command::new("brew")
+            .args(&["install", "tock"])
+            .output();
+        
+        match install_result {
+            Ok(output) if output.status.success() => {
+                CommandResult {
+                    success: true,
+                    output: "Tock installed successfully via Homebrew".to_string(),
+                    error: None,
+                }
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                CommandResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!("Failed to install tock: {}", stderr)),
+                }
+            }
+            Err(e) => {
+                CommandResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!("Failed to execute brew install: {}", e)),
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // Try installing via Go on Windows
+        println!("Detected Windows - attempting to install via Go");
+        install_tock_via_go("Go is not installed. Please install Go first from https://go.dev/doc/install")
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Try installing via Go on Linux
+        println!("Detected Linux - attempting to install via Go");
+        install_tock_via_go("Go is not installed. Please install Go first using your package manager or from https://go.dev/doc/install")
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        CommandResult {
+            success: false,
+            output: String::new(),
+            error: Some("Automatic installation is not supported on this operating system. Please install tock manually.".to_string()),
+        }
     }
 }
 
@@ -1156,6 +1341,7 @@ pub fn run() {
             get_recent_activities,
             get_report,
             check_tock_installed,
+            auto_install_tock,
             get_activities_for_date,
             get_activities_for_month,
             save_report_to_file,

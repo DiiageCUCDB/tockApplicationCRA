@@ -63,6 +63,10 @@ export const tockCommands = {
     return await invoke("check_tock_installed");
   },
 
+  autoInstallTock: async (): Promise<CommandResult> => {
+    return await invoke("auto_install_tock");
+  },
+
   getActivitiesForDate: async (date: string): Promise<CommandResult> => {
     return await invoke("get_activities_for_date", { date });
   },
