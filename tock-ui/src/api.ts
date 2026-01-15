@@ -123,6 +123,23 @@ export const tockCommands = {
     return await invoke("fetch_projects_from_api", { url });
   },
   
+  // Report API Routes (separate from regular API routes)
+  addReportApiRoute: async (name: string, url: string): Promise<CommandResult> => {
+    return await invoke("add_report_api_route", { name, url });
+  },
+
+  updateReportApiRoute: async (id: number, name: string, url: string, enabled: boolean): Promise<CommandResult> => {
+    return await invoke("update_report_api_route", { id, name, url, enabled });
+  },
+
+  deleteReportApiRoute: async (id: number): Promise<CommandResult> => {
+    return await invoke("delete_report_api_route", { id });
+  },
+
+  getAllReportApiRoutes: async (): Promise<CommandResult> => {
+    return await invoke("get_all_report_api_routes");
+  },
+  
   // Report Settings
   getReportSettings: async (): Promise<CommandResult> => {
     return await invoke("get_report_settings");
@@ -137,6 +154,10 @@ export const tockCommands = {
   
   sendMonthlyReportToApi: async (apiRouteId: number): Promise<CommandResult> => {
     return await invoke("send_monthly_report_to_api", { apiRouteId });
+  },
+  
+  checkAndSendAutoReport: async (): Promise<CommandResult> => {
+    return await invoke("check_and_send_auto_report");
   },
   
   // Calendar Cache
@@ -167,5 +188,14 @@ export const tockCommands = {
   
   deleteCachedProjectsByApi: async (apiRouteId: number): Promise<CommandResult> => {
     return await invoke("delete_cached_projects_by_api", { apiRouteId });
+  },
+  
+  // User Preferences
+  getUserPreference: async (key: string): Promise<CommandResult> => {
+    return await invoke("get_user_preference", { key });
+  },
+  
+  setUserPreference: async (key: string, value: string): Promise<CommandResult> => {
+    return await invoke("set_user_preference", { key, value });
   },
 };

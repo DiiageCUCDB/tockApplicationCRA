@@ -17,6 +17,7 @@ function App() {
   useEffect(() => {
     checkInstallation();
     syncApiProjectsOnStartup();
+    checkAndSendAutoReport();
   }, []);
 
   const checkInstallation = async () => {
@@ -33,6 +34,15 @@ function App() {
       await tockCommands.syncAllApiProjects();
     } catch (error) {
       console.error('Failed to sync API projects on startup:', error);
+    }
+  };
+
+  const checkAndSendAutoReport = async () => {
+    // Silently check and send auto report in the background
+    try {
+      await tockCommands.checkAndSendAutoReport();
+    } catch (error) {
+      console.error('Failed to check and send auto report on startup:', error);
     }
   };
 

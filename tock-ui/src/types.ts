@@ -31,6 +31,7 @@ export interface ReportSettings {
   id?: number;
   auto_send_enabled: boolean;
   selected_api_route_id?: number;
+  last_sent_at?: string;
   updated_at?: string;
 }
 
@@ -85,10 +86,17 @@ export interface TockCommands {
   getAllApiRoutes: () => Promise<CommandResult>;
   fetchProjectsFromApi: (url: string) => Promise<CommandResult>;
   
+  // Report API Routes (separate from regular API routes)
+  addReportApiRoute: (name: string, url: string) => Promise<CommandResult>;
+  updateReportApiRoute: (id: number, name: string, url: string, enabled: boolean) => Promise<CommandResult>;
+  deleteReportApiRoute: (id: number) => Promise<CommandResult>;
+  getAllReportApiRoutes: () => Promise<CommandResult>;
+  
   // Report Settings
   getReportSettings: () => Promise<CommandResult>;
   updateReportSettings: (autoSendEnabled: boolean, selectedApiRouteId?: number) => Promise<CommandResult>;
   sendMonthlyReportToApi: (apiRouteId: number) => Promise<CommandResult>;
+  checkAndSendAutoReport: () => Promise<CommandResult>;
   
   // Calendar Cache
   getCalendarCache: (yearMonth: string) => Promise<CommandResult>;
@@ -100,4 +108,8 @@ export interface TockCommands {
   syncApiProjects: (apiRouteId: number) => Promise<CommandResult>;
   syncAllApiProjects: () => Promise<CommandResult>;
   deleteCachedProjectsByApi: (apiRouteId: number) => Promise<CommandResult>;
+  
+  // User Preferences
+  getUserPreference: (key: string) => Promise<CommandResult>;
+  setUserPreference: (key: string, value: string) => Promise<CommandResult>;
 }

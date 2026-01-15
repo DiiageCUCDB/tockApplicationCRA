@@ -168,12 +168,12 @@ export const UpdateChecker: React.FC<UpdateCheckerProps> = ({ showMessage }) => 
             >
               {downloading ? (
                 <>
-                  <Download size={20} />
+                  <Download size={20} className="animate-pulse" />
                   {downloadProgress > 0 && downloadProgress < 100
                     ? `Downloading... ${downloadProgress}%`
                     : downloadProgress === 100
                     ? 'Installing...'
-                    : 'Preparing...'}
+                    : 'Preparing download...'}
                 </>
               ) : (
                 <>
@@ -183,11 +183,11 @@ export const UpdateChecker: React.FC<UpdateCheckerProps> = ({ showMessage }) => 
               )}
             </button>
             
-            {downloading && downloadProgress > 0 && (
-              <div className="w-full bg-slate-200 rounded-full h-2">
+            {downloading && (
+              <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
                 <div
                   className="bg-green-600 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${downloadProgress}%` }}
+                  style={{ width: downloadProgress > 0 ? `${downloadProgress}%` : '10%' }}
                 />
               </div>
             )}
