@@ -1463,6 +1463,44 @@ fn delete_cached_projects_by_api(api_route_id: i64) -> CommandResult {
     }
 }
 
+// User Preferences commands
+#[tauri::command]
+fn get_user_preference(key: String) -> CommandResult {
+    match get_db().get_preference(&key) {
+        Ok(Some(value)) => CommandResult {
+            success: true,
+            output: value,
+            error: None,
+        },
+        Ok(None) => CommandResult {
+            success: false,
+            output: String::new(),
+            error: None,
+        },
+        Err(e) => CommandResult {
+            success: false,
+            output: String::new(),
+            error: Some(format!("Failed to get preference: {}", e)),
+        },
+    }
+}
+
+#[tauri::command]
+fn set_user_preference(key: String, value: String) -> CommandResult {
+    match get_db().set_preference(&key, &value) {
+        Ok(_) => CommandResult {
+            success: true,
+            output: "Preference saved".to_string(),
+            error: None,
+        },
+        Err(e) => CommandResult {
+            success: false,
+            output: String::new(),
+            error: Some(format!("Failed to save preference: {}", e)),
+        },
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1506,7 +1544,9 @@ pub fn run() {
             get_cached_projects,
             sync_api_projects,
             sync_all_api_projects,
-            delete_cached_projects_by_api
+            delete_cached_projects_by_api,
+            get_user_preference,
+            set_user_preference
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

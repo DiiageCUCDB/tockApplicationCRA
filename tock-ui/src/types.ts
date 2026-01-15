@@ -108,4 +108,8 @@ export interface TockCommands {
   syncApiProjects: (apiRouteId: number) => Promise<CommandResult>;
   syncAllApiProjects: () => Promise<CommandResult>;
   deleteCachedProjectsByApi: (apiRouteId: number) => Promise<CommandResult>;
+  
+  // User Preferences
+  getUserPreference: (key: string) => Promise<CommandResult>;
+  setUserPreference: (key: string, value: string) => Promise<CommandResult>;
 }

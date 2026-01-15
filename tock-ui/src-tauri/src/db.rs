@@ -155,6 +155,17 @@ impl Database {
             [],
         )?;
         
+        // Create user preferences table
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS user_preferences (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key TEXT NOT NULL UNIQUE,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+        
         Ok(())
     }
     
@@ -533,6 +544,34 @@ impl Database {
             "DELETE FROM cached_projects WHERE source_api_route_id = ?1",
             params![api_route_id],
         )?;
+        Ok(())
+    }
+    
+    // User Preferences methods
+    pub fn get_preference(&self, key: &str) -> SqlResult<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        let result = conn.query_row(
+            "SELECT value FROM user_preferences WHERE key = ?1",
+            params![key],
+            |row| row.get(0),
+        );
+        
+        match result {
+            Ok(value) => Ok(Some(value)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+    
+    pub fn set_preference(&self, key: &str, value: &str) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Local::now().to_rfc3339();
+        
+        conn.execute(
+            "INSERT OR REPLACE INTO user_preferences (key, value, updated_at) VALUES (?1, ?2, ?3)",
+            params![key, value, now],
+        )?;
+        
         Ok(())
     }
 }

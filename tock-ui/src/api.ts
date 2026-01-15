@@ -189,4 +189,13 @@ export const tockCommands = {
   deleteCachedProjectsByApi: async (apiRouteId: number): Promise<CommandResult> => {
     return await invoke("delete_cached_projects_by_api", { apiRouteId });
   },
+  
+  // User Preferences
+  getUserPreference: async (key: string): Promise<CommandResult> => {
+    return await invoke("get_user_preference", { key });
+  },
+  
+  setUserPreference: async (key: string, value: string): Promise<CommandResult> => {
+    return await invoke("set_user_preference", { key, value });
+  },
 };
