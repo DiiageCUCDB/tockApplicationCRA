@@ -299,7 +299,7 @@ jobs:
           retention-days: 7
 
   create-update-json:
-    needs: [prepare-version]
+    needs: [prepare-version, build-and-release]
     runs-on: ubuntu-latest
     if: needs.prepare-version.outputs.has_new_version == 'true'
     steps:
