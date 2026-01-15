@@ -116,11 +116,11 @@ jobs:
             $certBytes = [Convert]::FromBase64String("${{ secrets.WINDOWS_CERTIFICATE }}")
             $certPath = Join-Path $env:RUNNER_TEMP "certificate.pfx"
             [IO.File]::WriteAllBytes($certPath, $certBytes)
-            
+
             # Import certificate to local certificate store
             $certPassword = ConvertTo-SecureString -String "${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}" -AsPlainText -Force
             Import-PfxCertificate -FilePath $certPath -CertStoreLocation Cert:\CurrentUser\My -Password $certPassword
-            
+
             Write-Host "Certificate imported successfully"
           } else {
             Write-Host "No certificate secret found, skipping code signing setup"
@@ -145,7 +145,7 @@ jobs:
         run: |
           # Create artifacts directory with platform-specific structure
           mkdir -p artifacts/${{ matrix.os_name }}
-          
+
           # Copy built files to artifacts directory (installers and updater files)
           if [ "${{ matrix.os_name }}" = "linux" ]; then
             cp tock-ui/src-tauri/target/release/bundle/appimage/*.AppImage artifacts/linux/ 2>/dev/null || true
@@ -162,7 +162,7 @@ jobs:
             cp tock-ui/src-tauri/target/release/bundle/macos/*.app.tar.gz artifacts/macos/ 2>/dev/null || true
             cp tock-ui/src-tauri/target/release/bundle/macos/*.app.tar.gz.sig artifacts/macos/ 2>/dev/null || true
           fi
-          
+
           # Save version info
           echo "${{ steps.package-version.outputs.version }}" > artifacts/version.txt
 
@@ -178,7 +178,7 @@ jobs:
     needs: build-and-release
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -247,29 +247,29 @@ jobs:
           WINDOWS_UPDATER=$(find dist-artifacts -name "*.nsis.zip" -type f ! -name "*.sig" | head -1)
           MACOS_UPDATER=$(find dist-artifacts -name "*.app.tar.gz" -type f ! -name "*.sig" | head -1)
           LINUX_UPDATER=$(find dist-artifacts -name "*.AppImage.tar.gz" -type f ! -name "*.sig" | head -1)
-          
+
           # Find signature files
           WINDOWS_SIG=$(find dist-artifacts -name "*.nsis.zip.sig" -type f | head -1)
           MACOS_SIG=$(find dist-artifacts -name "*.app.tar.gz.sig" -type f | head -1)
           LINUX_SIG=$(find dist-artifacts -name "*.AppImage.tar.gz.sig" -type f | head -1)
-          
+
           # Read signature contents
           WINDOWS_SIGNATURE=""
           MACOS_SIGNATURE=""
           LINUX_SIGNATURE=""
-          
+
           if [ -f "$WINDOWS_SIG" ]; then
             WINDOWS_SIGNATURE=$(cat "$WINDOWS_SIG")
           fi
-          
+
           if [ -f "$MACOS_SIG" ]; then
             MACOS_SIGNATURE=$(cat "$MACOS_SIG")
           fi
-          
+
           if [ -f "$LINUX_SIG" ]; then
             LINUX_SIGNATURE=$(cat "$LINUX_SIG")
           fi
-          
+
           # Create latest.json for auto-updates
           cat > latest.json << EOF
           {
@@ -292,7 +292,7 @@ jobs:
             }
           }
           EOF
-          
+
           cat latest.json
 
       - name: Upload release assets
