@@ -181,6 +181,14 @@ npm run tauri build
 - CLI execution: < 100ms typical
 - Tab switching: Instant
 
+### Windows Performance Optimizations
+The application includes Windows-specific optimizations to improve command execution speed:
+- **CREATE_NO_WINDOW flag**: Prevents creating console windows for each command execution, significantly reducing overhead
+- **Direct process creation**: Bypasses cmd.exe wrapper to reduce latency
+- **Optimized for frequent CLI calls**: Caching and efficient process management for repeated operations
+
+These optimizations address the higher process creation overhead on Windows compared to Unix systems, providing a smoother user experience.
+
 ## Browser Engines by Platform
 
 - **Windows**: WebView2 (Chromium-based)

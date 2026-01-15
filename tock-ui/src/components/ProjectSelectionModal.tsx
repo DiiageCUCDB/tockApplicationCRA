@@ -18,6 +18,7 @@ interface ProjectSelectionModalProps {
   favorites: Project[];
   apiRoutes: ApiRoute[];
   onFetchFromApi: (routeId: number) => Promise<Project[]>;
+  onToggleFavorite: (project: Project) => Promise<void>;
 }
 
 type FilterType = 'all' | 'favorites' | number; // number is API route ID
@@ -30,6 +31,7 @@ export const ProjectSelectionModal: React.FC<ProjectSelectionModalProps> = ({
   favorites,
   apiRoutes,
   onFetchFromApi,
+  onToggleFavorite,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredProjects, setFilteredProjects] = useState<Project[]>(projects);
@@ -216,6 +218,7 @@ export const ProjectSelectionModal: React.FC<ProjectSelectionModalProps> = ({
                       <tr>
                         <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700">Project Name</th>
                         <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700">Description</th>
+                        <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700">Favorite</th>
                         <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700">Action</th>
                       </tr>
                     </thead>
@@ -233,13 +236,20 @@ export const ProjectSelectionModal: React.FC<ProjectSelectionModalProps> = ({
                             key={key}
                             className="border-b border-slate-100 hover:bg-slate-50 transition-colors"
                           >
-                          <td className="px-6 py-4 text-sm font-medium text-slate-800">
-                            <div className="flex items-center gap-2">
-                              {project.isFavorite && <Star size={14} className="text-yellow-500 fill-yellow-500" />}
-                              {project.name}
-                            </div>
-                          </td>
+                          <td className="px-6 py-4 text-sm font-medium text-slate-800">{project.name}</td>
                           <td className="px-6 py-4 text-sm text-slate-600">{project.description}</td>
+                          <td className="px-6 py-4">
+                            <button
+                              onClick={() => onToggleFavorite(project)}
+                              className="p-1 hover:bg-slate-100 rounded transition-colors"
+                              title={project.isFavorite ? "Remove from favorites" : "Add to favorites"}
+                            >
+                              <Star 
+                                size={20} 
+                                className={project.isFavorite ? "fill-yellow-500 text-yellow-500" : "text-slate-400"}
+                              />
+                            </button>
+                          </td>
                           <td className="px-6 py-4">
                             <button
                               onClick={() => handleSelect(project)}

@@ -203,12 +203,92 @@ jobs:
         working-directory: ./tock-ui
         run: npm ci
 
+      - name: Inject updater public key
+        working-directory: ./tock-ui
+        env:
+          TAURI_PUBLIC_KEY: ${{ secrets.TAURI_PUBLIC_KEY }}
+        run: |
+          # Update tauri.conf.json with the public key from secrets
+          if [ -n "$TAURI_PUBLIC_KEY" ]; then
+            if ! jq --arg pubkey "$TAURI_PUBLIC_KEY" \
+              '.plugins.updater.pubkey = $pubkey' \
+              src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp; then
+              echo "Error: Failed to inject public key into tauri.conf.json"
+              exit 1
+            fi
+            mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
+            echo "Public key injected into tauri.conf.json"
+          else
+            echo "Warning: TAURI_PUBLIC_KEY secret not set. Auto-update signature verification will not work."
+          fi
+
+      - name: Setup Windows code signing
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          # Only run if certificate secret is available
+          if (![string]::IsNullOrEmpty($env:WINDOWS_CERTIFICATE)) {
+            try {
+              # Decode base64 certificate and save to file
+              $certBytes = [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
+              $certPath = Join-Path $env:RUNNER_TEMP "certificate.pfx"
+              [IO.File]::WriteAllBytes($certPath, $certBytes)
+
+              # Import certificate to local certificate store
+              $certPassword = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+              Import-PfxCertificate -FilePath $certPath -CertStoreLocation Cert:\CurrentUser\My -Password $certPassword -ErrorAction Stop
+
+              Write-Host "Certificate imported successfully"
+            } catch {
+              Write-Error "Failed to import certificate: $_"
+              exit 1
+            }
+          } else {
+            Write-Host "No certificate secret found, skipping code signing setup"
+          }
+
       - name: Build Tauri application
         working-directory: ./tock-ui
         run: npm run tauri build -- ${{ matrix.args }}
         env:
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get package version
+        id: package-version
+        working-directory: ./tock-ui
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Prepare artifacts for upload
+        run: |
+          # Create artifacts directory with platform-specific structure
+          mkdir -p artifacts/${{ matrix.os_name }}
+
+          # Copy built files to artifacts directory (installers and updater files)
+          if [ "${{ matrix.os_name }}" = "linux" ]; then
+            cp tock-ui/src-tauri/target/release/bundle/appimage/*.AppImage artifacts/linux/ 2>/dev/null || true
+            cp tock-ui/src-tauri/target/release/bundle/appimage/*.AppImage.tar.gz artifacts/linux/ 2>/dev/null || true
+            cp tock-ui/src-tauri/target/release/bundle/appimage/*.AppImage.tar.gz.sig artifacts/linux/ 2>/dev/null || true
+            cp tock-ui/src-tauri/target/release/bundle/deb/*.deb artifacts/linux/ 2>/dev/null || true
+          elif [ "${{ matrix.os_name }}" = "windows" ]; then
+            cp tock-ui/src-tauri/target/release/bundle/msi/*.msi artifacts/windows/ 2>/dev/null || true
+            cp tock-ui/src-tauri/target/release/bundle/nsis/*.exe artifacts/windows/ 2>/dev/null || true
+            cp tock-ui/src-tauri/target/release/bundle/nsis/*.nsis.zip artifacts/windows/ 2>/dev/null || true
+            cp tock-ui/src-tauri/target/release/bundle/nsis/*.nsis.zip.sig artifacts/windows/ 2>/dev/null || true
+          elif [ "${{ matrix.os_name }}" = "macos" ]; then
+            cp tock-ui/src-tauri/target/release/bundle/dmg/*.dmg artifacts/macos/ 2>/dev/null || true
+            cp tock-ui/src-tauri/target/release/bundle/macos/*.app.tar.gz artifacts/macos/ 2>/dev/null || true
+            cp tock-ui/src-tauri/target/release/bundle/macos/*.app.tar.gz.sig artifacts/macos/ 2>/dev/null || true
+          fi
+
+          # Save version info
+          echo "${{ steps.package-version.outputs.version }}" > artifacts/version.txt
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -268,39 +348,80 @@ jobs:
             find downloaded-version-files -type f
             exit 1
           fi
-          
-          echo "Found package.json at: $PACKAGE_JSON_PATH"
-          
-          # Use jq to extract version if available, otherwise use grep/sed
-          if command -v jq &> /dev/null; then
-            VERSION=$(jq -r '.version' "$PACKAGE_JSON_PATH")
-          else
-            VERSION=$(grep '"version"' "$PACKAGE_JSON_PATH" | sed 's/.*"version": "\([^"]*\)".*/\1/')
+          echo "release_notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$RELEASE_NOTES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create latest.json
+        id: create-latest-json
+        run: |
+          # Find the updater files (.tar.gz for macOS/Linux, .nsis.zip for Windows)
+          WINDOWS_UPDATER=$(find dist-artifacts -type f -name "*.nsis.zip" ! -name "*.sig" | head -1)
+          MACOS_UPDATER=$(find dist-artifacts -type f -name "*.app.tar.gz" ! -name "*.sig" | head -1)
+          LINUX_UPDATER=$(find dist-artifacts -type f -name "*.AppImage.tar.gz" ! -name "*.sig" | head -1)
+
+          # Validate updater files exist
+          if [ -z "$WINDOWS_UPDATER" ] || [ ! -f "$WINDOWS_UPDATER" ]; then
+            echo "Error: Windows updater file not found"
+            exit 1
           fi
-          
-          echo "Creating update JSON for version: $VERSION"
-          
-          # Create dist directory
-          mkdir -p tock-ui/dist
-          
-          # Create the update JSON
-          cat > tock-ui/dist/latest.json << EOF
+
+          if [ -z "$MACOS_UPDATER" ] || [ ! -f "$MACOS_UPDATER" ]; then
+            echo "Error: macOS updater file not found"
+            exit 1
+          fi
+
+          if [ -z "$LINUX_UPDATER" ] || [ ! -f "$LINUX_UPDATER" ]; then
+            echo "Error: Linux updater file not found"
+            exit 1
+          fi
+
+          # Find signature files
+          WINDOWS_SIG=$(find dist-artifacts -type f -name "*.nsis.zip.sig" | head -1)
+          MACOS_SIG=$(find dist-artifacts -type f -name "*.app.tar.gz.sig" | head -1)
+          LINUX_SIG=$(find dist-artifacts -type f -name "*.AppImage.tar.gz.sig" | head -1)
+
+          # Read signature contents with validation
+          WINDOWS_SIGNATURE=""
+          MACOS_SIGNATURE=""
+          LINUX_SIGNATURE=""
+
+          if [ -f "$WINDOWS_SIG" ]; then
+            WINDOWS_SIGNATURE=$(cat "$WINDOWS_SIG")
+          else
+            echo "Warning: Windows signature file not found. Auto-update verification may fail."
+          fi
+
+          if [ -f "$MACOS_SIG" ]; then
+            MACOS_SIGNATURE=$(cat "$MACOS_SIG")
+          else
+            echo "Warning: macOS signature file not found. Auto-update verification may fail."
+          fi
+
+          if [ -f "$LINUX_SIG" ]; then
+            LINUX_SIGNATURE=$(cat "$LINUX_SIG")
+          else
+            echo "Warning: Linux signature file not found. Auto-update verification may fail."
+          fi
+
+          # Create latest.json for auto-updates
+          cat > latest.json << EOF
           {
             "version": "$VERSION",
             "notes": "Auto-generated release",
             "pub_date": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
             "platforms": {
-              "linux-x86_64": {
-                "url": "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Tock.UI_${VERSION}_amd64.AppImage"
+              "windows-x86_64": {
+                "signature": "$WINDOWS_SIGNATURE",
+                "url": "https://github.com/${{ github.repository }}/releases/download/v${{ steps.version-info.outputs.version }}/$(basename "$WINDOWS_UPDATER")"
               },
               "darwin-x86_64": {
-                "url": "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Tock.UI_${VERSION}_x64.dmg"
+                "signature": "$MACOS_SIGNATURE",
+                "url": "https://github.com/${{ github.repository }}/releases/download/v${{ steps.version-info.outputs.version }}/$(basename "$MACOS_UPDATER")"
               },
-              "darwin-aarch64": {
-                "url": "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Tock.UI_${VERSION}_aarch64.dmg"
-              },
-              "windows-x86_64": {
-                "url": "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Tock.UI_${VERSION}_x64_en-US.msi"
+              "linux-x86_64": {
+                "signature": "$LINUX_SIGNATURE",
+                "url": "https://github.com/${{ github.repository }}/releases/download/v${{ steps.version-info.outputs.version }}/$(basename "$LINUX_UPDATER")"
               }
             }
           }

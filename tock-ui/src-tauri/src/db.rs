@@ -25,6 +25,7 @@ pub struct ReportSettings {
     pub id: Option<i64>,
     pub auto_send_enabled: bool,
     pub selected_api_route_id: Option<i64>,
+    pub last_sent_at: Option<String>,
     pub updated_at: String,
 }
 
@@ -104,14 +105,27 @@ impl Database {
             [],
         )?;
         
+        // Create report API routes table (separate from api_routes)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS report_api_routes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                url TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+        
         // Create report settings table
         conn.execute(
             "CREATE TABLE IF NOT EXISTS report_settings (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 auto_send_enabled INTEGER NOT NULL DEFAULT 0,
                 selected_api_route_id INTEGER,
+                last_sent_at TEXT,
                 updated_at TEXT NOT NULL,
-                FOREIGN KEY(selected_api_route_id) REFERENCES api_routes(id) ON DELETE SET NULL
+                FOREIGN KEY(selected_api_route_id) REFERENCES report_api_routes(id) ON DELETE SET NULL
             )",
             [],
         )?;
@@ -137,6 +151,17 @@ impl Database {
                 year_month TEXT NOT NULL UNIQUE,
                 data TEXT NOT NULL,
                 cached_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+        
+        // Create user preferences table
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS user_preferences (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key TEXT NOT NULL UNIQUE,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
             )",
             [],
         )?;
@@ -267,20 +292,92 @@ impl Database {
         Ok(routes)
     }
     
+    // Report API Routes methods (separate from regular API routes)
+    pub fn add_report_api_route(&self, name: &str, url: &str) -> SqlResult<i64> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Local::now().to_rfc3339();
+        
+        conn.execute(
+            "INSERT INTO report_api_routes (name, url, enabled, created_at) VALUES (?1, ?2, 1, ?3)",
+            params![name, url, now],
+        )?;
+        
+        Ok(conn.last_insert_rowid())
+    }
+    
+    pub fn update_report_api_route(&self, id: i64, name: &str, url: &str, enabled: bool) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE report_api_routes SET name = ?1, url = ?2, enabled = ?3 WHERE id = ?4",
+            params![name, url, enabled as i32, id],
+        )?;
+        Ok(())
+    }
+    
+    pub fn delete_report_api_route(&self, id: i64) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM report_api_routes WHERE id = ?1",
+            params![id],
+        )?;
+        Ok(())
+    }
+    
+    pub fn get_all_report_api_routes(&self) -> SqlResult<Vec<ApiRoute>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, url, enabled, created_at FROM report_api_routes ORDER BY name"
+        )?;
+        
+        let routes = stmt.query_map([], |row| {
+            Ok(ApiRoute {
+                id: Some(row.get(0)?),
+                name: row.get(1)?,
+                url: row.get(2)?,
+                enabled: row.get::<_, i32>(3)? != 0,
+                created_at: row.get(4)?,
+            })
+        })?
+        .collect::<SqlResult<Vec<_>>>()?;
+        
+        Ok(routes)
+    }
+    
+    pub fn get_enabled_report_api_routes(&self) -> SqlResult<Vec<ApiRoute>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, url, enabled, created_at FROM report_api_routes WHERE enabled = 1 ORDER BY name"
+        )?;
+        
+        let routes = stmt.query_map([], |row| {
+            Ok(ApiRoute {
+                id: Some(row.get(0)?),
+                name: row.get(1)?,
+                url: row.get(2)?,
+                enabled: row.get::<_, i32>(3)? != 0,
+                created_at: row.get(4)?,
+            })
+        })?
+        .collect::<SqlResult<Vec<_>>>()?;
+        
+        Ok(routes)
+    }
+    
     // Report Settings methods
     pub fn get_report_settings(&self) -> SqlResult<ReportSettings> {
         let conn = self.conn.lock().unwrap();
         
         // Try to get existing settings
         let result = conn.query_row(
-            "SELECT id, auto_send_enabled, selected_api_route_id, updated_at FROM report_settings LIMIT 1",
+            "SELECT id, auto_send_enabled, selected_api_route_id, last_sent_at, updated_at FROM report_settings LIMIT 1",
             [],
             |row| {
                 Ok(ReportSettings {
                     id: Some(row.get(0)?),
                     auto_send_enabled: row.get::<_, i32>(1)? != 0,
                     selected_api_route_id: row.get(2)?,
-                    updated_at: row.get(3)?,
+                    last_sent_at: row.get(3)?,
+                    updated_at: row.get(4)?,
                 })
             }
         );
@@ -291,13 +388,14 @@ impl Database {
             Err(rusqlite::Error::QueryReturnedNoRows) => {
                 let now = chrono::Local::now().to_rfc3339();
                 conn.execute(
-                    "INSERT INTO report_settings (auto_send_enabled, selected_api_route_id, updated_at) VALUES (0, NULL, ?1)",
+                    "INSERT INTO report_settings (auto_send_enabled, selected_api_route_id, last_sent_at, updated_at) VALUES (0, NULL, NULL, ?1)",
                     params![now],
                 )?;
                 Ok(ReportSettings {
                     id: Some(conn.last_insert_rowid()),
                     auto_send_enabled: false,
                     selected_api_route_id: None,
+                    last_sent_at: None,
                     updated_at: now,
                 })
             },
@@ -318,7 +416,7 @@ impl Database {
         
         if count == 0 {
             conn.execute(
-                "INSERT INTO report_settings (auto_send_enabled, selected_api_route_id, updated_at) VALUES (?1, ?2, ?3)",
+                "INSERT INTO report_settings (auto_send_enabled, selected_api_route_id, last_sent_at, updated_at) VALUES (?1, ?2, NULL, ?3)",
                 params![auto_send_enabled as i32, selected_api_route_id, now],
             )?;
         } else {
@@ -327,6 +425,18 @@ impl Database {
                 params![auto_send_enabled as i32, selected_api_route_id, now],
             )?;
         }
+        
+        Ok(())
+    }
+    
+    pub fn update_last_sent_at(&self, last_sent_at: &str) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Local::now().to_rfc3339();
+        
+        conn.execute(
+            "UPDATE report_settings SET last_sent_at = ?1, updated_at = ?2",
+            params![last_sent_at, now],
+        )?;
         
         Ok(())
     }
@@ -434,6 +544,34 @@ impl Database {
             "DELETE FROM cached_projects WHERE source_api_route_id = ?1",
             params![api_route_id],
         )?;
+        Ok(())
+    }
+    
+    // User Preferences methods
+    pub fn get_preference(&self, key: &str) -> SqlResult<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        let result = conn.query_row(
+            "SELECT value FROM user_preferences WHERE key = ?1",
+            params![key],
+            |row| row.get(0),
+        );
+        
+        match result {
+            Ok(value) => Ok(Some(value)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+    
+    pub fn set_preference(&self, key: &str, value: &str) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Local::now().to_rfc3339();
+        
+        conn.execute(
+            "INSERT OR REPLACE INTO user_preferences (key, value, updated_at) VALUES (?1, ?2, ?3)",
+            params![key, value, now],
+        )?;
+        
         Ok(())
     }
 }

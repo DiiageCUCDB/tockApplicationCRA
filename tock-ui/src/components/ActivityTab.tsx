@@ -155,10 +155,17 @@ export const ActivityTab: React.FC<ActivityTabProps> = ({ showMessage }) => {
       });
     });
 
-    // Convert map to array and sort by name
-    const projects = Array.from(projectMap.values()).sort((a, b) =>
-      a.name.localeCompare(b.name)
-    );
+    // Convert map to array
+    let projects = Array.from(projectMap.values());
+    
+    // Check which projects are favorites
+    for (const project of projects) {
+      const isFavResult = await tockCommands.isFavorite(project.name, project.description);
+      project.isFavorite = isFavResult.success && isFavResult.output === 'true';
+    }
+    
+    // Sort by name
+    projects.sort((a, b) => a.name.localeCompare(b.name));
 
     setAvailableProjects(projects);
   };
@@ -327,6 +334,17 @@ export const ActivityTab: React.FC<ActivityTabProps> = ({ showMessage }) => {
     await loadFavorites();
   };
 
+  const handleToggleFavoriteInModal = async (selectedProject: Project) => {
+    if (selectedProject.isFavorite) {
+      await tockCommands.removeFavorite(selectedProject.name, selectedProject.description);
+    } else {
+      await tockCommands.addFavorite(selectedProject.name, selectedProject.description);
+    }
+    // Reload data to reflect changes
+    await loadFavorites();
+    await loadRecentProjects();
+  };
+
   const handleStopActivity = async () => {
     setLoading(true);
     const result = await tockCommands.stopActivity(endTime.trim() === '' ? undefined : endTime);
@@ -390,7 +408,7 @@ export const ActivityTab: React.FC<ActivityTabProps> = ({ showMessage }) => {
           </button>
           <button
             onClick={handleStopActivity}
-            disabled={loading}
+            disabled={loading || parsedActivities.length === 0}
             className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             <Square size={16} />
@@ -530,6 +548,7 @@ export const ActivityTab: React.FC<ActivityTabProps> = ({ showMessage }) => {
         favorites={favorites}
         apiRoutes={apiRoutes}
         onFetchFromApi={handleFetchFromApi}
+        onToggleFavorite={handleToggleFavoriteInModal}
       />
     </div>
   );

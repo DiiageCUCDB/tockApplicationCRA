@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { tockCommands } from '../api';
 import { Download, Calendar, CalendarRange, FolderOpen } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -18,6 +18,22 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ showMessage }) => {
   const [loading, setLoading] = useState(false);
   const [selectedFolder, setSelectedFolder] = useState<string>('');
 
+  // Load saved folder path on mount
+  useEffect(() => {
+    loadSavedFolderPath();
+  }, []);
+
+  const loadSavedFolderPath = async () => {
+    try {
+      const result = await tockCommands.getUserPreference('report_folder_path');
+      if (result.success && result.output) {
+        setSelectedFolder(result.output);
+      }
+    } catch (error) {
+      console.error('Failed to load saved folder path:', error);
+    }
+  };
+
   const handleSelectFolder = async () => {
     try {
       const folder = await open({
@@ -28,10 +44,13 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ showMessage }) => {
       
       if (folder && typeof folder === 'string') {
         setSelectedFolder(folder);
+        // Save the folder path for next time
+        await tockCommands.setUserPreference('report_folder_path', folder);
         showMessage('success', `Folder selected: ${folder}`);
       }
     } catch (error) {
-      showMessage('error', 'Failed to select folder');
+      console.error('Error selecting folder:', error);
+      showMessage('error', `Failed to select folder: ${error}`);
     }
   };
 
