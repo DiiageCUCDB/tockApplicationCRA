@@ -323,6 +323,11 @@ jobs:
           name: version-files
           path: ./downloaded-version-files
 
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-artifacts
+
       - name: Debug downloaded files
         shell: bash
         run: |
