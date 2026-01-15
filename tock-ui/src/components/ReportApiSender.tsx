@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { tockCommands } from '../api';
-import { Send, CheckCircle, AlertCircle } from 'lucide-react';
+import { Send, CheckCircle, AlertCircle, Plus, Trash2, Edit2, X, Check } from 'lucide-react';
 import { ApiRoute, ReportSettings } from '../types';
 
 interface ReportApiSenderProps {
@@ -15,6 +15,10 @@ export const ReportApiSender: React.FC<ReportApiSenderProps> = ({ showMessage })
   });
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [newRoute, setNewRoute] = useState({ name: '', url: '' });
+  const [editRoute, setEditRoute] = useState({ name: '', url: '', enabled: true });
 
   useEffect(() => {
     loadData();
@@ -23,14 +27,14 @@ export const ReportApiSender: React.FC<ReportApiSenderProps> = ({ showMessage })
   const loadData = async () => {
     setLoading(true);
     
-    // Load API routes
-    const routesResult = await tockCommands.getAllApiRoutes();
+    // Load Report API routes (separate from regular API routes)
+    const routesResult = await tockCommands.getAllReportApiRoutes();
     if (routesResult.success) {
       try {
         const parsedRoutes: ApiRoute[] = JSON.parse(routesResult.output);
         setRoutes(parsedRoutes);
       } catch (e) {
-        console.error('Failed to parse API routes response:', e);
+        console.error('Failed to parse report API routes response:', e);
       }
     }
     
@@ -46,6 +50,68 @@ export const ReportApiSender: React.FC<ReportApiSenderProps> = ({ showMessage })
     }
     
     setLoading(false);
+  };
+
+  const handleAddRoute = async () => {
+    if (!newRoute.name || !newRoute.url) {
+      showMessage('error', 'Name and URL are required');
+      return;
+    }
+
+    const result = await tockCommands.addReportApiRoute(newRoute.name, newRoute.url);
+    if (result.success) {
+      showMessage('success', 'Report API route added successfully');
+      setNewRoute({ name: '', url: '' });
+      setIsAdding(false);
+      loadData();
+    } else {
+      showMessage('error', result.error || 'Failed to add route');
+    }
+  };
+
+  const handleUpdateRoute = async (id: number) => {
+    const result = await tockCommands.updateReportApiRoute(
+      id,
+      editRoute.name,
+      editRoute.url,
+      editRoute.enabled
+    );
+    if (result.success) {
+      showMessage('success', 'Report API route updated successfully');
+      setEditingId(null);
+      loadData();
+    } else {
+      showMessage('error', result.error || 'Failed to update route');
+    }
+  };
+
+  const handleDeleteRoute = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this report API route?')) return;
+
+    const result = await tockCommands.deleteReportApiRoute(id);
+    if (result.success) {
+      showMessage('success', 'Report API route deleted successfully');
+      loadData();
+    } else {
+      showMessage('error', result.error || 'Failed to delete route');
+    }
+  };
+
+  const handleToggleEnabled = async (route: ApiRoute) => {
+    const result = await tockCommands.updateReportApiRoute(
+      route.id!,
+      route.name,
+      route.url,
+      !route.enabled
+    );
+    if (result.success) {
+      loadData();
+    }
+  };
+
+  const startEdit = (route: ApiRoute) => {
+    setEditingId(route.id!);
+    setEditRoute({ name: route.name, url: route.url, enabled: route.enabled });
   };
 
   const handleAutoSendToggle = async (enabled: boolean) => {
@@ -88,6 +154,8 @@ export const ReportApiSender: React.FC<ReportApiSenderProps> = ({ showMessage })
     
     if (result.success) {
       showMessage('success', result.output);
+      // Reload settings to get updated last_sent_at
+      loadData();
     } else {
       showMessage('error', result.error || 'Failed to send report');
     }
@@ -189,6 +257,168 @@ export const ReportApiSender: React.FC<ReportApiSenderProps> = ({ showMessage })
               <p className="text-xs text-slate-500 mt-2 text-center">
                 Report will be sent to: {selectedRoute.name} ({selectedRoute.url})
               </p>
+            )}
+            {settings.last_sent_at && (
+              <p className="text-xs text-slate-500 mt-1 text-center">
+                Last sent: {new Date(settings.last_sent_at).toLocaleString()}
+              </p>
+            )}
+          </div>
+
+          {/* Report API Routes Management */}
+          <div className="border-t border-slate-200 pt-4 mt-6">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-semibold text-slate-800">Manage Report API Routes</h3>
+              <button
+                onClick={() => setIsAdding(true)}
+                className="px-3 py-1.5 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors flex items-center gap-1 text-sm"
+              >
+                <Plus size={16} />
+                Add Route
+              </button>
+            </div>
+
+            {/* Add New Route Form */}
+            {isAdding && (
+              <div className="bg-white border border-slate-300 rounded-lg p-4 mb-3">
+                <h4 className="text-sm font-semibold text-slate-700 mb-3">New Report API Route</h4>
+                <div className="space-y-3">
+                  <input
+                    type="text"
+                    placeholder="Route Name"
+                    value={newRoute.name}
+                    onChange={(e) => setNewRoute({ ...newRoute, name: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                  />
+                  <input
+                    type="url"
+                    placeholder="API URL"
+                    value={newRoute.url}
+                    onChange={(e) => setNewRoute({ ...newRoute, url: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleAddRoute}
+                      className="flex-1 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm flex items-center justify-center gap-1"
+                    >
+                      <Check size={16} />
+                      Add
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsAdding(false);
+                        setNewRoute({ name: '', url: '' });
+                      }}
+                      className="flex-1 px-3 py-2 bg-slate-300 text-slate-700 rounded-lg hover:bg-slate-400 transition-colors text-sm flex items-center justify-center gap-1"
+                    >
+                      <X size={16} />
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Routes List */}
+            {routes.length === 0 ? (
+              <p className="text-sm text-slate-500 text-center py-4">
+                No report API routes configured. Click "Add Route" to create one.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {routes.map((route) => (
+                  <div
+                    key={route.id}
+                    className="bg-white border border-slate-200 rounded-lg p-3"
+                  >
+                    {editingId === route.id ? (
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={editRoute.name}
+                          onChange={(e) => setEditRoute({ ...editRoute, name: e.target.value })}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                        />
+                        <input
+                          type="url"
+                          value={editRoute.url}
+                          onChange={(e) => setEditRoute({ ...editRoute, url: e.target.value })}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                        />
+                        <div className="flex items-center gap-3">
+                          <label className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={editRoute.enabled}
+                              onChange={(e) => setEditRoute({ ...editRoute, enabled: e.target.checked })}
+                              className="w-4 h-4"
+                            />
+                            Enabled
+                          </label>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleUpdateRoute(route.id!)}
+                            className="flex-1 px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm flex items-center justify-center gap-1"
+                          >
+                            <Check size={14} />
+                            Save
+                          </button>
+                          <button
+                            onClick={() => setEditingId(null)}
+                            className="flex-1 px-3 py-1.5 bg-slate-300 text-slate-700 rounded-lg hover:bg-slate-400 transition-colors text-sm flex items-center justify-center gap-1"
+                          >
+                            <X size={14} />
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-medium text-slate-800 text-sm">{route.name}</h4>
+                            <span
+                              className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                route.enabled
+                                  ? 'bg-green-100 text-green-700'
+                                  : 'bg-slate-200 text-slate-600'
+                              }`}
+                            >
+                              {route.enabled ? 'Enabled' : 'Disabled'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-1">{route.url}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleToggleEnabled(route)}
+                            className="p-2 text-slate-600 hover:bg-slate-100 rounded transition-colors"
+                            title={route.enabled ? 'Disable' : 'Enable'}
+                          >
+                            <CheckCircle size={16} className={route.enabled ? 'text-green-600' : ''} />
+                          </button>
+                          <button
+                            onClick={() => startEdit(route)}
+                            className="p-2 text-slate-600 hover:bg-slate-100 rounded transition-colors"
+                            title="Edit"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteRoute(route.id!)}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors"
+                            title="Delete"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </div>

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { Download, RefreshCw, CheckCircle, AlertCircle } from 'lucide-react';
+import { getVersion } from '@tauri-apps/api/app';
 
 interface UpdateCheckerProps {
   showMessage: (type: 'success' | 'error', text: string) => void;
@@ -15,9 +16,24 @@ export const UpdateChecker: React.FC<UpdateCheckerProps> = ({ showMessage }) => 
   const [latestVersion, setLatestVersion] = useState('');
   const [downloadProgress, setDownloadProgress] = useState(0);
 
+  // Get current version from package.json
   useEffect(() => {
-    // Get current version from package.json
-    setCurrentVersion('1.0.0');
+    const loadVersion = async () => {
+      try {
+        const v = await getVersion();
+        setCurrentVersion(v || '');
+      } catch {
+        // Fallback for web/dev environment: read package.json
+        try {
+          const pkg = await import('../../package.json');
+          setCurrentVersion((pkg as any).version || 'unknown');
+        } catch {
+          setCurrentVersion('unknown');
+        }
+      }
+    };
+
+    loadVersion();
   }, []);
 
   const checkForUpdates = async () => {
@@ -152,12 +168,12 @@ export const UpdateChecker: React.FC<UpdateCheckerProps> = ({ showMessage }) => 
             >
               {downloading ? (
                 <>
-                  <Download size={20} />
+                  <Download size={20} className="animate-pulse" />
                   {downloadProgress > 0 && downloadProgress < 100
                     ? `Downloading... ${downloadProgress}%`
                     : downloadProgress === 100
                     ? 'Installing...'
-                    : 'Preparing...'}
+                    : 'Preparing download...'}
                 </>
               ) : (
                 <>
@@ -167,11 +183,11 @@ export const UpdateChecker: React.FC<UpdateCheckerProps> = ({ showMessage }) => 
               )}
             </button>
             
-            {downloading && downloadProgress > 0 && (
-              <div className="w-full bg-slate-200 rounded-full h-2">
+            {downloading && (
+              <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
                 <div
                   className="bg-green-600 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${downloadProgress}%` }}
+                  style={{ width: downloadProgress > 0 ? `${downloadProgress}%` : '10%' }}
                 />
               </div>
             )}

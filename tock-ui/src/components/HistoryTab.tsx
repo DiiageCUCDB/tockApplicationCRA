@@ -341,8 +341,9 @@ export const HistoryTab: React.FC = () => {
         const descPart = parts[2].trim();
 
         // Extract time from "2026-01-01 13:46 - 13:47 (0h 1m)"
-        const timeMatch = timePart.match(/(\d{2}:\d{2})/);
-        const displayTime = timeMatch ? timeMatch[1] : '';
+        // To 13:46 - 13:47
+        const timeMatch = timePart.match(/(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/);
+        const displayTime = timeMatch ? timeMatch[0] : '';
 
         // Parse duration
         const durationMatch = activity.match(/\((\d+)h\s*(\d+)m\)/);

@@ -9,8 +9,17 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use chrono::{NaiveDate, Datelike};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 mod db;
 use db::{Database, FavoriteProject, ApiRoute, ReportSettings, CachedProject, CalendarCache};
+
+// Windows-specific constant for process creation optimization
+// CREATE_NO_WINDOW (0x08000000) - Prevents creating a new console window
+// This significantly reduces overhead on Windows
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 static DB: OnceLock<Database> = OnceLock::new();
 
@@ -117,26 +126,60 @@ pub struct CommandResult {
 
 // Execute tock command with arguments
 fn execute_tock_command(args: Vec<&str>) -> CommandResult {
-    let output = Command::new("tock")
-        .args(&args)
-        .output();
+    // On Windows, use platform-specific optimizations to reduce command execution time
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        
+        let output = Command::new("tock")
+            .args(&args)
+            .creation_flags(CREATE_NO_WINDOW) // Prevent console window from flashing
+            .output();
 
-    match output {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-            
-            CommandResult {
-                success: output.status.success(),
-                output: stdout,
-                error: if stderr.is_empty() { None } else { Some(stderr) },
+        match output {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                
+                CommandResult {
+                    success: output.status.success(),
+                    output: stdout,
+                    error: if stderr.is_empty() { None } else { Some(stderr) },
+                }
             }
+            Err(e) => CommandResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("Failed to execute tock command: {}. Make sure tock is installed and in your PATH.", e)),
+            },
         }
-        Err(e) => CommandResult {
-            success: false,
-            output: String::new(),
-            error: Some(format!("Failed to execute tock command: {}. Make sure tock is installed and in your PATH.", e)),
-        },
+    }
+
+    // On Unix-like systems, use the standard approach
+    #[cfg(not(target_os = "windows"))]
+    {
+        let output = Command::new("tock")
+            .args(&args)
+            .output();
+
+        match output {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                
+                CommandResult {
+                    success: output.status.success(),
+                    output: stdout,
+                    error: if stderr.is_empty() { None } else { Some(stderr) },
+                }
+            }
+            Err(e) => CommandResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("Failed to execute tock command: {}. Make sure tock is installed and in your PATH.", e)),
+            },
+        }
     }
 }
 
@@ -297,9 +340,16 @@ fn get_report(date_type: String, date: Option<String>) -> CommandResult {
 
 #[tauri::command]
 fn check_tock_installed() -> CommandResult {
-    let output = Command::new("tock")
-        .arg("--version")
-        .output();
+    let mut cmd = Command::new("tock");
+    cmd.arg("--version");
+    
+    // Windows-specific optimizations
+    #[cfg(target_os = "windows")]
+    {
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    
+    let output = cmd.output();
 
     match output {
         Ok(output) => {
@@ -315,6 +365,164 @@ fn check_tock_installed() -> CommandResult {
             output: String::new(),
             error: Some("Tock CLI is not installed or not in PATH. Please install tock first.".to_string()),
         },
+    }
+}
+
+// Helper function to install tock via Go
+fn install_tock_via_go(error_msg: &str) -> CommandResult {
+    const GO_INSTALL_SUCCESS_MSG: &str = "Tock installed successfully via Go. You may need to restart the application or add Go's bin directory to your PATH.";
+    
+    // First check if Go is installed
+    let go_check = Command::new("go")
+        .arg("version")
+        .output();
+    
+    if go_check.is_err() {
+        return CommandResult {
+            success: false,
+            output: String::new(),
+            error: Some(error_msg.to_string()),
+        };
+    }
+
+    // Install tock via go install
+    let install_result = Command::new("go")
+        .args(&["install", "github.com/kriuchkov/tock/cmd/tock@latest"])
+        .output();
+    
+    match install_result {
+        Ok(output) if output.status.success() => {
+            CommandResult {
+                success: true,
+                output: GO_INSTALL_SUCCESS_MSG.to_string(),
+                error: None,
+            }
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            CommandResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("Failed to install tock: {}", stderr)),
+            }
+        }
+        Err(e) => {
+            CommandResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("Failed to execute go install: {}", e)),
+            }
+        }
+    }
+}
+
+#[tauri::command]
+fn auto_install_tock() -> CommandResult {
+    // First check if tock is already installed
+    let check_result = check_tock_installed();
+    if check_result.success {
+        return CommandResult {
+            success: true,
+            output: "Tock is already installed".to_string(),
+            error: None,
+        };
+    }
+
+    // Detect the operating system
+    #[cfg(target_os = "macos")]
+    {
+        // Try installing via Homebrew on macOS
+        println!("Detected macOS - attempting to install via Homebrew");
+        
+        // First check if Homebrew is installed
+        let brew_check = Command::new("brew")
+            .arg("--version")
+            .output();
+        
+        if brew_check.is_err() {
+            return CommandResult {
+                success: false,
+                output: String::new(),
+                error: Some("Homebrew is not installed. Please install Homebrew first from https://brew.sh".to_string()),
+            };
+        }
+
+        // Add the tap
+        let tap_result = Command::new("brew")
+            .args(&["tap", "kriuchkov/tap"])
+            .output();
+        
+        match tap_result {
+            Ok(tap_output) if !tap_output.status.success() => {
+                let stderr = String::from_utf8_lossy(&tap_output.stderr).to_string();
+                return CommandResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!("Failed to add Homebrew tap: {}", stderr)),
+                };
+            }
+            Err(e) => {
+                return CommandResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!("Failed to execute brew tap: {}", e)),
+                };
+            }
+            _ => {}
+        }
+
+        // Install tock
+        let install_result = Command::new("brew")
+            .args(&["install", "tock"])
+            .output();
+        
+        match install_result {
+            Ok(output) if output.status.success() => {
+                CommandResult {
+                    success: true,
+                    output: "Tock installed successfully via Homebrew".to_string(),
+                    error: None,
+                }
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                CommandResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!("Failed to install tock: {}", stderr)),
+                }
+            }
+            Err(e) => {
+                CommandResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!("Failed to execute brew install: {}", e)),
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // Try installing via Go on Windows
+        println!("Detected Windows - attempting to install via Go");
+        install_tock_via_go("Go is not installed. Please install Go first from https://go.dev/doc/install")
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Try installing via Go on Linux
+        println!("Detected Linux - attempting to install via Go");
+        install_tock_via_go("Go is not installed. Please install Go first using your package manager or from https://go.dev/doc/install")
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        CommandResult {
+            success: false,
+            output: String::new(),
+            error: Some("Automatic installation is not supported on this operating system. Please install tock manually.".to_string()),
+        }
     }
 }
 
@@ -778,6 +986,80 @@ async fn fetch_projects_from_api(url: String) -> CommandResult {
     }
 }
 
+// Report API Routes commands (separate from regular API routes)
+#[tauri::command]
+fn add_report_api_route(name: String, url: String) -> CommandResult {
+    match get_db().add_report_api_route(&name, &url) {
+        Ok(_) => CommandResult {
+            success: true,
+            output: "Report API route added".to_string(),
+            error: None,
+        },
+        Err(e) => CommandResult {
+            success: false,
+            output: String::new(),
+            error: Some(format!("Failed to add report API route: {}", e)),
+        },
+    }
+}
+
+#[tauri::command]
+fn update_report_api_route(id: i64, name: String, url: String, enabled: bool) -> CommandResult {
+    match get_db().update_report_api_route(id, &name, &url, enabled) {
+        Ok(_) => CommandResult {
+            success: true,
+            output: "Report API route updated".to_string(),
+            error: None,
+        },
+        Err(e) => CommandResult {
+            success: false,
+            output: String::new(),
+            error: Some(format!("Failed to update report API route: {}", e)),
+        },
+    }
+}
+
+#[tauri::command]
+fn delete_report_api_route(id: i64) -> CommandResult {
+    match get_db().delete_report_api_route(id) {
+        Ok(_) => CommandResult {
+            success: true,
+            output: "Report API route deleted".to_string(),
+            error: None,
+        },
+        Err(e) => CommandResult {
+            success: false,
+            output: String::new(),
+            error: Some(format!("Failed to delete report API route: {}", e)),
+        },
+    }
+}
+
+#[tauri::command]
+fn get_all_report_api_routes() -> CommandResult {
+    match get_db().get_all_report_api_routes() {
+        Ok(routes) => {
+            match serde_json::to_string(&routes) {
+                Ok(json) => CommandResult {
+                    success: true,
+                    output: json,
+                    error: None,
+                },
+                Err(e) => CommandResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!("Failed to serialize report API routes: {}", e)),
+                },
+            }
+        },
+        Err(e) => CommandResult {
+            success: false,
+            output: String::new(),
+            error: Some(format!("Failed to get report API routes: {}", e)),
+        },
+    }
+}
+
 // Report Settings commands
 #[tauri::command]
 fn get_report_settings() -> CommandResult {
@@ -822,13 +1104,13 @@ fn update_report_settings(auto_send_enabled: bool, selected_api_route_id: Option
 
 #[tauri::command]
 async fn send_monthly_report_to_api(api_route_id: i64) -> CommandResult {
-    // Get the API route
-    let routes = match get_db().get_all_api_routes() {
+    // Get the report API route
+    let routes = match get_db().get_all_report_api_routes() {
         Ok(r) => r,
         Err(e) => return CommandResult {
             success: false,
             output: String::new(),
-            error: Some(format!("Failed to get API routes: {}", e)),
+            error: Some(format!("Failed to get report API routes: {}", e)),
         },
     };
     
@@ -837,7 +1119,7 @@ async fn send_monthly_report_to_api(api_route_id: i64) -> CommandResult {
         None => return CommandResult {
             success: false,
             output: String::new(),
-            error: Some("API route not found".to_string()),
+            error: Some("Report API route not found".to_string()),
         },
     };
     
@@ -883,6 +1165,12 @@ async fn send_monthly_report_to_api(api_route_id: i64) -> CommandResult {
             Ok(response) => {
                 let status = response.status();
                 if status.is_success() {
+                    // Update last_sent_at timestamp
+                    let sent_at = chrono::Local::now().to_rfc3339();
+                    if let Err(e) = get_db().update_last_sent_at(&sent_at) {
+                        eprintln!("Warning: Failed to update last_sent_at: {}", e);
+                    }
+                    
                     CommandResult {
                         success: true,
                         output: format!("Monthly report sent successfully to {}", api_route.name),
@@ -902,6 +1190,64 @@ async fn send_monthly_report_to_api(api_route_id: i64) -> CommandResult {
                 error: Some(format!("Failed to send report to API: {}", e)),
             },
         }
+}
+
+#[tauri::command]
+async fn check_and_send_auto_report() -> CommandResult {
+    // Get report settings
+    let settings = match get_db().get_report_settings() {
+        Ok(s) => s,
+        Err(e) => return CommandResult {
+            success: false,
+            output: String::new(),
+            error: Some(format!("Failed to get report settings: {}", e)),
+        },
+    };
+    
+    // Check if auto-send is enabled
+    if !settings.auto_send_enabled {
+        return CommandResult {
+            success: true,
+            output: "Auto-send is not enabled".to_string(),
+            error: None,
+        };
+    }
+    
+    // Check if an API route is selected
+    let api_route_id = match settings.selected_api_route_id {
+        Some(id) => id,
+        None => return CommandResult {
+            success: true,
+            output: "No API route selected for auto-send".to_string(),
+            error: None,
+        },
+    };
+    
+    // Check if we should send (7+ days since last send, or never sent)
+    let should_send = match settings.last_sent_at {
+        None => true, // Never sent, so send now
+        Some(last_sent) => {
+            match chrono::DateTime::parse_from_rfc3339(&last_sent) {
+                Ok(last_sent_dt) => {
+                    let now = chrono::Local::now();
+                    let duration = now.signed_duration_since(last_sent_dt);
+                    duration.num_days() >= 7
+                },
+                Err(_) => true, // If we can't parse, send anyway
+            }
+        }
+    };
+    
+    if !should_send {
+        return CommandResult {
+            success: true,
+            output: "Not enough time has passed since last auto-send (minimum 7 days)".to_string(),
+            error: None,
+        };
+    }
+    
+    // Send the report
+    send_monthly_report_to_api(api_route_id).await
 }
 
 // Calendar Cache commands
@@ -1117,6 +1463,44 @@ fn delete_cached_projects_by_api(api_route_id: i64) -> CommandResult {
     }
 }
 
+// User Preferences commands
+#[tauri::command]
+fn get_user_preference(key: String) -> CommandResult {
+    match get_db().get_preference(&key) {
+        Ok(Some(value)) => CommandResult {
+            success: true,
+            output: value,
+            error: None,
+        },
+        Ok(None) => CommandResult {
+            success: false,
+            output: String::new(),
+            error: None,
+        },
+        Err(e) => CommandResult {
+            success: false,
+            output: String::new(),
+            error: Some(format!("Failed to get preference: {}", e)),
+        },
+    }
+}
+
+#[tauri::command]
+fn set_user_preference(key: String, value: String) -> CommandResult {
+    match get_db().set_preference(&key, &value) {
+        Ok(_) => CommandResult {
+            success: true,
+            output: "Preference saved".to_string(),
+            error: None,
+        },
+        Err(e) => CommandResult {
+            success: false,
+            output: String::new(),
+            error: Some(format!("Failed to save preference: {}", e)),
+        },
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1133,6 +1517,7 @@ pub fn run() {
             get_recent_activities,
             get_report,
             check_tock_installed,
+            auto_install_tock,
             get_activities_for_date,
             get_activities_for_month,
             save_report_to_file,
@@ -1145,16 +1530,23 @@ pub fn run() {
             delete_api_route,
             get_all_api_routes,
             fetch_projects_from_api,
+            add_report_api_route,
+            update_report_api_route,
+            delete_report_api_route,
+            get_all_report_api_routes,
             get_report_settings,
             update_report_settings,
             send_monthly_report_to_api,
+            check_and_send_auto_report,
             get_calendar_cache,
             save_calendar_cache,
             clear_calendar_cache,
             get_cached_projects,
             sync_api_projects,
             sync_all_api_projects,
-            delete_cached_projects_by_api
+            delete_cached_projects_by_api,
+            get_user_preference,
+            set_user_preference
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
