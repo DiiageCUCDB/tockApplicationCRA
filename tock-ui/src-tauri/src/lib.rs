@@ -15,6 +15,12 @@ use std::os::windows::process::CommandExt;
 mod db;
 use db::{Database, FavoriteProject, ApiRoute, ReportSettings, CachedProject, CalendarCache};
 
+// Windows-specific constant for process creation optimization
+// CREATE_NO_WINDOW (0x08000000) - Prevents creating a new console window
+// This significantly reduces overhead on Windows
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 static DB: OnceLock<Database> = OnceLock::new();
 
 fn get_db() -> &'static Database {
@@ -126,9 +132,6 @@ fn execute_tock_command(args: Vec<&str>) -> CommandResult {
     // Windows-specific optimizations to reduce process creation overhead
     #[cfg(target_os = "windows")]
     {
-        // CREATE_NO_WINDOW (0x08000000) - Prevents creating a new console window
-        // This significantly reduces overhead on Windows
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
     
@@ -316,7 +319,6 @@ fn check_tock_installed() -> CommandResult {
     // Windows-specific optimizations
     #[cfg(target_os = "windows")]
     {
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
     
