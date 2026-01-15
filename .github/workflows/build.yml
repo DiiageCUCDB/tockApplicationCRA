@@ -207,6 +207,7 @@ jobs:
         working-directory: ./tock-ui
         env:
           TAURI_PUBLIC_KEY: ${{ secrets.TAURI_PUBLIC_KEY }}
+        shell: bash
         run: |
           # Update tauri.conf.json with the public key from secrets
           if [ -n "$TAURI_PUBLIC_KEY" ]; then
