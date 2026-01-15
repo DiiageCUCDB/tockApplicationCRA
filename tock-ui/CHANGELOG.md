@@ -1,3 +1,17 @@
+# [1.11.0](https://github.com/DiiageCUCDB/tockApplicationCRA/compare/v1.10.0...v1.11.0) (2026-01-15)
+
+
+### Features
+
+* Clean up release platform signatures in build.yml ([d8e2c63](https://github.com/DiiageCUCDB/tockApplicationCRA/commit/d8e2c63c9edeeeaabb3a418bee5260dd8330767d))
+
+# [1.10.0](https://github.com/DiiageCUCDB/tockApplicationCRA/compare/v1.9.0...v1.10.0) (2026-01-15)
+
+
+### Features
+
+* Update URLs in build.yml to use correct casing ([317f010](https://github.com/DiiageCUCDB/tockApplicationCRA/commit/317f010843d16ef44bb1d328103aa575b9a47cf0))
+
 # [1.9.0](https://github.com/DiiageCUCDB/tockApplicationCRA/compare/v1.8.0...v1.9.0) (2026-01-12)
 
 
