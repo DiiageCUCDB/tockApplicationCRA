@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { tockCommands } from '../api';
 import { ChevronLeft, ChevronRight, Star } from 'lucide-react';
 import { 
@@ -18,6 +18,59 @@ interface ActivityData {
   colors: { [project: string]: string };
 }
 
+// Memoized CalendarDay component to prevent unnecessary re-renders
+interface CalendarDayProps {
+  day: Date;
+  dateStr: string;
+  hasActivities: boolean;
+  isSelected: boolean;
+  dayData: ActivityData | undefined;
+  onDateClick: (date: Date) => void;
+}
+
+const CalendarDay = React.memo<CalendarDayProps>(({ 
+  day, 
+  dateStr, 
+  hasActivities, 
+  isSelected, 
+  dayData, 
+  onDateClick 
+}) => {
+  const handleClick = useCallback(() => {
+    onDateClick(day);
+  }, [day, onDateClick]);
+
+  return (
+    <button
+      onClick={handleClick}
+      className={`aspect-square p-2 rounded-lg transition-all ${
+        isSelected
+          ? 'bg-slate-700 text-white ring-2 ring-slate-500'
+          : hasActivities
+          ? 'bg-slate-100 hover:bg-slate-200'
+          : 'bg-white hover:bg-slate-50 text-slate-400'
+      } border ${
+        hasActivities ? 'border-slate-300' : 'border-slate-100'
+      } relative`}
+    >
+      <div className="text-sm font-medium">{format(day, 'd')}</div>
+      {hasActivities && dayData && (
+        <div className="flex gap-0.5 justify-center mt-1 flex-wrap">
+          {Object.keys(dayData.colors).slice(0, 3).map((project, idx) => (
+            <div
+              key={idx}
+              className="w-1.5 h-1.5 rounded-full"
+              style={{ backgroundColor: dayData.colors[project] }}
+            />
+          ))}
+        </div>
+      )}
+    </button>
+  );
+});
+
+CalendarDay.displayName = 'CalendarDay';
+
 export const HistoryTab: React.FC = () => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -30,7 +83,7 @@ export const HistoryTab: React.FC = () => {
   const DATE_SEPARATOR_REGEX = /\n*===\s*(\d{4}-\d{2}-\d{2})\s*===\n*/;
 
   // Color palette for activities
-  const colorPalette = [
+  const colorPalette = useMemo(() => [
     '#94a3b8', // slate-400
     '#60a5fa', // blue-400
     '#34d399', // emerald-400
@@ -39,9 +92,9 @@ export const HistoryTab: React.FC = () => {
     '#a78bfa', // violet-400
     '#fb923c', // orange-400
     '#22d3ee', // cyan-400
-  ];
+  ], []);
 
-  const parseActivitiesOutput = (output: string, dateStr: string): ActivityData => {
+  const parseActivitiesOutput = useCallback((output: string, dateStr: string): ActivityData => {
     const lines = output.trim().split('\n');
     const activities: string[] = [];
     const colors: { [project: string]: string } = {};
@@ -93,9 +146,9 @@ export const HistoryTab: React.FC = () => {
     });
 
     return { date: dateStr, activities, colors };
-  };
+  }, [colorPalette]);
 
-  const loadActivitiesForMonth = async (useCache: boolean = true) => {
+  const loadActivitiesForMonth = useCallback(async (useCache: boolean = true) => {
     setLoading(true);
     const year = currentMonth.getFullYear();
     const month = currentMonth.getMonth() + 1; // JavaScript months are 0-indexed
@@ -149,13 +202,13 @@ export const HistoryTab: React.FC = () => {
 
     setActivitiesData(newActivitiesData);
     setLoading(false);
-  };
+  }, [parseActivitiesOutput, currentMonth]);
   
-  const handleRefresh = async () => {
+  const handleRefresh = useCallback(async () => {
     await loadActivitiesForMonth(false); // Force refresh, bypass cache
-  };
+  }, [loadActivitiesForMonth]);
 
-  const loadFavorites = async () => {
+  const loadFavorites = useCallback(async () => {
     const result = await tockCommands.getAllFavorites();
     if (result.success) {
       try {
@@ -166,13 +219,13 @@ export const HistoryTab: React.FC = () => {
         console.error('Failed to parse favorites:', e);
       }
     }
-  };
+  }, []);
 
-  const isFavorite = (project: string, description: string) => {
+  const isFavorite = useCallback((project: string, description: string) => {
     return favorites.has(`${project}|${description}`);
-  };
+  }, [favorites]);
 
-  const toggleFavorite = async (project: string, description: string) => {
+  const toggleFavorite = useCallback(async (project: string, description: string) => {
     const key = `${project}|${description}`;
     if (favorites.has(key)) {
       await tockCommands.removeFavorite(project, description);
@@ -185,26 +238,85 @@ export const HistoryTab: React.FC = () => {
       await tockCommands.addFavorite(project, description);
       setFavorites(prev => new Set(prev).add(key));
     }
-  };
+  }, [favorites]);
 
   useEffect(() => {
     loadActivitiesForMonth();
     loadFavorites();
-  }, [currentMonth]);
+  }, [loadActivitiesForMonth, loadFavorites]);
 
-  const handleDateClick = async (date: Date) => {
+  const handleDateClick = useCallback(async (date: Date) => {
     setSelectedDate(date);
-  };
+  }, []);
 
-  const renderCalendar = () => {
+  // Memoize timeline items calculation
+  const timelineData = useMemo(() => {
+    if (!selectedDate) return null;
+
+    const dateStr = format(selectedDate, 'yyyy-MM-dd');
+    const dayData = activitiesData[dateStr];
+
+    if (!dayData || dayData.activities.length === 0) return null;
+
+    const timelineItems: Array<{
+      time: string;
+      project: string;
+      description: string;
+      color: string;
+      duration: number;
+    }> = [];
+    let totalMinutes = 0;
+
+    dayData.activities.forEach((activity) => {
+      const parts = activity.split('|');
+      if (parts.length >= 3) {
+        const timePart = parts[0].trim();
+        const projectPart = parts[1].trim();
+        const descPart = parts[2].trim();
+
+        // Extract time from "2026-01-01 13:46 - 13:47 (0h 1m)"
+        const timeMatch = timePart.match(/(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/);
+        const displayTime = timeMatch ? timeMatch[0] : '';
+
+        // Parse duration
+        const durationMatch = activity.match(/\((\d+)h\s*(\d+)m\)/);
+        let minutes = 0;
+        if (durationMatch) {
+          minutes = parseInt(durationMatch[1], 10) * 60 + parseInt(durationMatch[2], 10);
+        }
+
+        const color = dayData.colors[projectPart] || '#cbd5e1';
+        
+        timelineItems.push({
+          time: displayTime,
+          project: projectPart,
+          description: descPart,
+          color: color,
+          duration: minutes,
+        });
+
+        totalMinutes += minutes;
+      }
+    });
+
+    const totalHours = Math.floor(totalMinutes / 60);
+    const totalMins = totalMinutes % 60;
+
+    return { timelineItems, totalHours, totalMins };
+  }, [selectedDate, activitiesData]);
+
+  // Memoize calendar days to avoid recalculating on every render
+  const calendarDays = useMemo(() => {
     const monthStart = startOfMonth(currentMonth);
     const monthEnd = endOfMonth(currentMonth);
-    const startDate = monthStart;
-    const endDate = monthEnd;
+    return eachDayOfInterval({ start: monthStart, end: monthEnd });
+  }, [currentMonth]);
 
-    const days = eachDayOfInterval({ start: startDate, end: endDate });
-    const firstDayOfWeek = getDay(monthStart);
+  const firstDayOfWeek = useMemo(() => {
+    return getDay(startOfMonth(currentMonth));
+  }, [currentMonth]);
 
+  const renderCalendar = () => {
     const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
     return (
@@ -257,39 +369,22 @@ export const HistoryTab: React.FC = () => {
           ))}
 
           {/* Calendar days */}
-          {days.map((day) => {
+          {calendarDays.map((day) => {
             const dateStr = format(day, 'yyyy-MM-dd');
             const hasActivities = activitiesData[dateStr] && activitiesData[dateStr].activities.length > 0;
             const isSelected = selectedDate && isSameDay(day, selectedDate);
             const dayData = activitiesData[dateStr];
 
             return (
-              <button
+              <CalendarDay
                 key={dateStr}
-                onClick={() => handleDateClick(day)}
-                className={`aspect-square p-2 rounded-lg transition-all ${
-                  isSelected
-                    ? 'bg-slate-700 text-white ring-2 ring-slate-500'
-                    : hasActivities
-                    ? 'bg-slate-100 hover:bg-slate-200'
-                    : 'bg-white hover:bg-slate-50 text-slate-400'
-                } border ${
-                  hasActivities ? 'border-slate-300' : 'border-slate-100'
-                } relative`}
-              >
-                <div className="text-sm font-medium">{format(day, 'd')}</div>
-                {hasActivities && dayData && (
-                  <div className="flex gap-0.5 justify-center mt-1 flex-wrap">
-                    {Object.keys(dayData.colors).slice(0, 3).map((project, idx) => (
-                      <div
-                        key={idx}
-                        className="w-1.5 h-1.5 rounded-full"
-                        style={{ backgroundColor: dayData.colors[project] }}
-                      />
-                    ))}
-                  </div>
-                )}
-              </button>
+                day={day}
+                dateStr={dateStr}
+                hasActivities={hasActivities}
+                isSelected={isSelected}
+                dayData={dayData}
+                onDateClick={handleDateClick}
+              />
             );
           })}
         </div>
@@ -312,10 +407,7 @@ export const HistoryTab: React.FC = () => {
       );
     }
 
-    const dateStr = format(selectedDate, 'yyyy-MM-dd');
-    const dayData = activitiesData[dateStr];
-
-    if (!dayData || dayData.activities.length === 0) {
+    if (!timelineData) {
       return (
         <div className="text-slate-500 text-center py-8">
           No activities for this day
@@ -323,51 +415,7 @@ export const HistoryTab: React.FC = () => {
       );
     }
 
-    // Parse activities for timeline display
-    const timelineItems: Array<{
-      time: string;
-      project: string;
-      description: string;
-      color: string;
-      duration: number;
-    }> = [];
-    let totalMinutes = 0;
-
-    dayData.activities.forEach((activity) => {
-      const parts = activity.split('|');
-      if (parts.length >= 3) {
-        const timePart = parts[0].trim();
-        const projectPart = parts[1].trim();
-        const descPart = parts[2].trim();
-
-        // Extract time from "2026-01-01 13:46 - 13:47 (0h 1m)"
-        // To 13:46 - 13:47
-        const timeMatch = timePart.match(/(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/);
-        const displayTime = timeMatch ? timeMatch[0] : '';
-
-        // Parse duration
-        const durationMatch = activity.match(/\((\d+)h\s*(\d+)m\)/);
-        let minutes = 0;
-        if (durationMatch) {
-          minutes = parseInt(durationMatch[1], 10) * 60 + parseInt(durationMatch[2], 10);
-        }
-
-        const color = dayData.colors[projectPart] || '#cbd5e1';
-        
-        timelineItems.push({
-          time: displayTime,
-          project: projectPart,
-          description: descPart,
-          color: color,
-          duration: minutes,
-        });
-
-        totalMinutes += minutes;
-      }
-    });
-
-    const totalHours = Math.floor(totalMinutes / 60);
-    const totalMins = totalMinutes % 60;
+    const { timelineItems, totalHours, totalMins } = timelineData;
 
     return (
       <div>
