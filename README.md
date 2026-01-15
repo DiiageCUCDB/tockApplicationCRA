@@ -63,6 +63,7 @@ npm run tauri dev
 - [Quick Start Guide](QUICKSTART.md) - Get up and running in minutes
 - [User Guide](./tock-ui/README.md#usage) - How to use the application
 - [Build Instructions](BUILD.md) - Detailed build guide for all platforms
+- [Performance Guide](PERFORMANCE.md) - Performance optimizations and benchmarks
 - [Contributing Guide](CONTRIBUTING.md) - How to contribute
 - [Tock CLI Documentation](https://github.com/kriuchkov/tock) - CLI reference
 

@@ -9,8 +9,17 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use chrono::{NaiveDate, Datelike};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 mod db;
 use db::{Database, FavoriteProject, ApiRoute, ReportSettings, CachedProject, CalendarCache};
+
+// Windows-specific constant for process creation optimization
+// CREATE_NO_WINDOW (0x08000000) - Prevents creating a new console window
+// This significantly reduces overhead on Windows
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 static DB: OnceLock<Database> = OnceLock::new();
 
@@ -331,9 +340,16 @@ fn get_report(date_type: String, date: Option<String>) -> CommandResult {
 
 #[tauri::command]
 fn check_tock_installed() -> CommandResult {
-    let output = Command::new("tock")
-        .arg("--version")
-        .output();
+    let mut cmd = Command::new("tock");
+    cmd.arg("--version");
+    
+    // Windows-specific optimizations
+    #[cfg(target_os = "windows")]
+    {
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    
+    let output = cmd.output();
 
     match output {
         Ok(output) => {
