@@ -169,6 +169,756 @@ jobs:
         working-directory: ./tock-ui
         run: npm ci
 
+      - name: Build Tauri application
+        working-directory: ./tock-ui
+        run: npm run tauri build -- ${{ matrix.args }}
+        env:
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}-artifacts
+          path: |
+            tock-ui/src-tauri/target/release/bundle/
+          retention-days: 7
+
+  create-update-json:
+    needs: [prepare-version]
+    runs-on: ubuntu-latest
+    if: needs.prepare-version.outputs.has_new_version == 'true'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Download updated version files
+        uses: actions/download-artifact@v4
+        with:
+          name: version-files
+          path: ./downloaded-version-files
+
+      - name: Debug downloaded files
+        shell: bash
+        run: |
+          echo "=== Downloaded files structure ==="
+          find downloaded-version-files -type f | sort
+          echo ""
+          echo "=== Checking package.json ==="
+          PACKAGE_JSON_PATH=$(find downloaded-version-files -name "package.json" -type f | head -1)
+          if [ -n "$PACKAGE_JSON_PATH" ] && [ -f "$PACKAGE_JSON_PATH" ]; then
+            echo "Found package.json at: $PACKAGE_JSON_PATH"
+            echo "Content:"
+            cat "$PACKAGE_JSON_PATH" | grep -A 1 '"version"'
+          else
+            echo "ERROR: package.json not found!"
+          fi
+
+      - name: Create update JSON
+        shell: bash
+        run: |
+          # Extract the new version from the downloaded package.json
+          echo "Looking for package.json..."
+          PACKAGE_JSON_PATH=$(find downloaded-version-files -name "package.json" -type f | head -1)
+          
+          if [ -z "$PACKAGE_JSON_PATH" ] || [ ! -f "$PACKAGE_JSON_PATH" ]; then
+            echo "ERROR: Could not find package.json in downloaded files"
+            find downloaded-version-files -type f
+            exit 1
+          fi
+          
+          echo "Found package.json at: $PACKAGE_JSON_PATH"
+          
+          # Use jq to extract version if available, otherwise use grep/sed
+          if command -v jq &> /dev/null; then
+            VERSION=$(jq -r '.version' "$PACKAGE_JSON_PATH")
+          else
+            VERSION=$(grep '"version"' "$PACKAGE_JSON_PATH" | sed 's/.*"version": "\([^"]*\)".*/\1/')
+          fi
+          
+          echo "Creating update JSON for version: $VERSION"
+          
+          # Create dist directory
+          mkdir -p tock-ui/dist
+          
+          # Create the update JSON
+          cat > tock-ui/dist/latest.json << EOF
+          {
+            "version": "$VERSION",
+            "notes": "Auto-generated release",
+            "pub_date": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "platforms": {
+              "linux-x86_64": {
+                "url": "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Tock.UI_${VERSION}_amd64.AppImage"
+              },
+              "darwin-x86_64": {
+                "url": "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Tock.UI_${VERSION}_x64.dmg"
+              },
+              "darwin-aarch64": {
+                "url": "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Tock.UI_${VERSION}_aarch64.dmg"
+              },
+              "windows-x86_64": {
+                "url": "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Tock.UI_${VERSION}_x64_en-US.msi"
+              }
+            }
+          }
+          EOF
+          
+          echo "Update JSON created:"
+          cat tock-ui/dist/latest.json
+
+      - name: Upload update JSON
+        uses: actions/upload-artifact@v4
+        with:
+          name: update-json
+          path: tock-ui/dist/latest.json
+          retention-days: 7
+
+  semantic-release:
+    needs: [prepare-version, build-and-release, create-update-json]
+    runs-on: ubuntu-latest
+    
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && needs.prepare-version.outputs.has_new_version == 'true'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: 'tock-ui/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: ./tock-ui
+        run: npm ci
+
+      - name: Download updated version files
+        uses: actions/download-artifact@v4
+        with:
+          name: version-files
+          path: .
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-artifacts
+
+      - name: Download update JSON
+        uses: actions/download-artifact@v4
+        with:
+          name: update-json
+          path: update-json
+
+      - name: Prepare artifacts for release
+        run: |
+          mkdir -p release-artifacts
+          # Copy all build artifacts
+          find dist-artifacts -type f \( -name "*.deb" -o -name "*.AppImage" -o -name "*.dmg" -o -name "*.msi" -o -name "*.exe" \) \
+            -exec cp {} release-artifacts/ \;
+          # Copy update JSON
+          cp update-json/latest.json release-artifacts/
+          
+          echo "Artifacts ready for release:"
+          ls -la release-artifacts/
+
+      - name: Semantic Release
+        working-directory: ./tock-ui
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npx semantic-releasename: Build and Release Tock UI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  prepare-version:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    outputs:
+      has_new_version: ${{ steps.version-check.outputs.has_new_version }}
+      version: ${{ steps.version-check.outputs.version }}
+      update_json_path: ${{ steps.version-check.outputs.update_json_path }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: 'tock-ui/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: ./tock-ui
+        run: npm ci
+
+      - name: Detect version and update files
+        id: version-check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node .github/scripts/prepare-version.js
+
+      - name: Upload updated version files
+        if: steps.version-check.outputs.has_new_version == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: version-files
+          path: |
+            tock-ui/package.json
+            tock-ui/src-tauri/Cargo.toml
+            tock-ui/src-tauri/tauri.conf.json
+          retention-days: 1
+
+  build-and-release:  # This line should be indented to align with 'prepare-version:'
+    needs: prepare-version
+    if: |
+      always() &&
+      (needs.prepare-version.result == 'success' || needs.prepare-version.result == 'skipped') &&
+      !cancelled()
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'ubuntu-22.04'
+            args: ''
+            artifact_name: 'linux'
+          - platform: 'windows-latest'
+            args: ''
+            artifact_name: 'windows'
+          - platform: 'macos-latest'
+            args: ''
+            artifact_name: 'macos'
+    
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+
+      - name: Download updated version files
+        if: needs.prepare-version.outputs.has_new_version == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: version-files
+          path: ./downloaded-version-files
+
+      - name: Debug - Show downloaded files
+        if: needs.prepare-version.outputs.has_new_version == 'true'
+        shell: bash
+        run: |
+          echo "=== Downloaded files structure ==="
+          find downloaded-version-files -type f -name "*.json" -o -name "*.toml" | xargs -I {} sh -c 'echo "File: {}"; echo "Content:"; cat {}; echo ""'
+          echo ""
+          echo "=== Full directory tree ==="
+          find downloaded-version-files -type f | sort
+
+      - name: Apply updated version files
+        if: needs.prepare-version.outputs.has_new_version == 'true'
+        shell: bash
+        run: |
+          echo "Applying updated version files..."
+          
+          # First check what we actually downloaded
+          echo "Looking for downloaded files..."
+          
+          # Find the actual paths
+          PACKAGE_JSON_PATH=$(find downloaded-version-files -name "package.json" -type f | head -1)
+          CARGO_TOML_PATH=$(find downloaded-version-files -name "Cargo.toml" -type f | head -1)
+          TAURI_CONF_PATH=$(find downloaded-version-files -name "tauri.conf.json" -type f | head -1)
+          
+          echo "Found package.json at: $PACKAGE_JSON_PATH"
+          echo "Found Cargo.toml at: $CARGO_TOML_PATH"
+          echo "Found tauri.conf.json at: $TAURI_CONF_PATH"
+          
+          # Copy files if found
+          if [ -n "$PACKAGE_JSON_PATH" ] && [ -f "$PACKAGE_JSON_PATH" ]; then
+            echo "Updating package.json..."
+            cp "$PACKAGE_JSON_PATH" tock-ui/package.json
+          else
+            echo "WARNING: package.json not found in downloaded files"
+          fi
+          
+          if [ -n "$CARGO_TOML_PATH" ] && [ -f "$CARGO_TOML_PATH" ]; then
+            echo "Updating Cargo.toml..."
+            mkdir -p tock-ui/src-tauri
+            cp "$CARGO_TOML_PATH" tock-ui/src-tauri/Cargo.toml
+          else
+            echo "WARNING: Cargo.toml not found in downloaded files"
+          fi
+          
+          if [ -n "$TAURI_CONF_PATH" ] && [ -f "$TAURI_CONF_PATH" ]; then
+            echo "Updating tauri.conf.json..."
+            mkdir -p tock-ui/src-tauri
+            cp "$TAURI_CONF_PATH" tock-ui/src-tauri/tauri.conf.json
+          else
+            echo "WARNING: tauri.conf.json not found in downloaded files"
+          fi
+          
+          # Verify the updates
+          echo "=== Verify updated versions ==="
+          echo "package.json version:"
+          grep -A 1 '"version"' tock-ui/package.json || echo "package.json not found or no version"
+          echo ""
+          echo "Cargo.toml version:"
+          grep '^version' tock-ui/src-tauri/Cargo.toml 2>/dev/null || echo "Cargo.toml not found or no version"
+          echo ""
+          echo "tauri.conf.json version:"
+          grep '"version"' tock-ui/src-tauri/tauri.conf.json 2>/dev/null || echo "tauri.conf.json not found or no version"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'tock-ui/package-lock.json'
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libgtk-3-dev
+
+      - name: Install macOS dependencies
+        if: matrix.platform == 'macos-latest'
+        run: |
+          brew install pkg-config
+          brew install openssl@3
+
+      - name: Install Windows dependencies
+        if: matrix.platform == 'windows-latest'
+        run: |
+          choco install -y visualstudio2022buildtools
+          choco install -y visualstudio2022-workload-vctools
+        shell: pwsh
+
+      - name: Cache Rust dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './tock-ui/src-tauri -> target'
+
+      - name: Install frontend dependencies
+        working-directory: ./tock-ui
+        run: npm ci
+
+      - name: Build Tauri application
+        working-directory: ./tock-ui
+        run: npm run tauri build -- ${{ matrix.args }}
+        env:
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}-artifacts
+          path: |
+            tock-ui/src-tauri/target/release/bundle/
+          retention-days: 7
+
+  create-update-json:
+    needs: [prepare-version]
+    runs-on: ubuntu-latest
+    if: needs.prepare-version.outputs.has_new_version == 'true'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Download updated version files
+        uses: actions/download-artifact@v4
+        with:
+          name: version-files
+          path: ./downloaded-version-files
+
+      - name: Debug downloaded files
+        shell: bash
+        run: |
+          echo "=== Downloaded files structure ==="
+          find downloaded-version-files -type f | sort
+          echo ""
+          echo "=== Checking package.json ==="
+          PACKAGE_JSON_PATH=$(find downloaded-version-files -name "package.json" -type f | head -1)
+          if [ -n "$PACKAGE_JSON_PATH" ] && [ -f "$PACKAGE_JSON_PATH" ]; then
+            echo "Found package.json at: $PACKAGE_JSON_PATH"
+            echo "Content:"
+            cat "$PACKAGE_JSON_PATH" | grep -A 1 '"version"'
+          else
+            echo "ERROR: package.json not found!"
+          fi
+
+      - name: Create update JSON
+        shell: bash
+        run: |
+          # Extract the new version from the downloaded package.json
+          echo "Looking for package.json..."
+          PACKAGE_JSON_PATH=$(find downloaded-version-files -name "package.json" -type f | head -1)
+          
+          if [ -z "$PACKAGE_JSON_PATH" ] || [ ! -f "$PACKAGE_JSON_PATH" ]; then
+            echo "ERROR: Could not find package.json in downloaded files"
+            find downloaded-version-files -type f
+            exit 1
+          fi
+          
+          echo "Found package.json at: $PACKAGE_JSON_PATH"
+          
+          # Use jq to extract version if available, otherwise use grep/sed
+          if command -v jq &> /dev/null; then
+            VERSION=$(jq -r '.version' "$PACKAGE_JSON_PATH")
+          else
+            VERSION=$(grep '"version"' "$PACKAGE_JSON_PATH" | sed 's/.*"version": "\([^"]*\)".*/\1/')
+          fi
+          
+          echo "Creating update JSON for version: $VERSION"
+          
+          # Create dist directory
+          mkdir -p tock-ui/dist
+          
+          # Create the update JSON
+          cat > tock-ui/dist/latest.json << EOF
+          {
+            "version": "$VERSION",
+            "notes": "Auto-generated release",
+            "pub_date": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "platforms": {
+              "linux-x86_64": {
+                "url": "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Tock.UI_${VERSION}_amd64.AppImage"
+              },
+              "darwin-x86_64": {
+                "url": "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Tock.UI_${VERSION}_x64.dmg"
+              },
+              "darwin-aarch64": {
+                "url": "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Tock.UI_${VERSION}_aarch64.dmg"
+              },
+              "windows-x86_64": {
+                "url": "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Tock.UI_${VERSION}_x64_en-US.msi"
+              }
+            }
+          }
+          EOF
+          
+          echo "Update JSON created:"
+          cat tock-ui/dist/latest.json
+
+      - name: Upload update JSON
+        uses: actions/upload-artifact@v4
+        with:
+          name: update-json
+          path: tock-ui/dist/latest.json
+          retention-days: 7
+
+  semantic-release:
+    needs: [prepare-version, build-and-release, create-update-json]
+    runs-on: ubuntu-latest
+    
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && needs.prepare-version.outputs.has_new_version == 'true'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: 'tock-ui/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: ./tock-ui
+        run: npm ci
+
+      - name: Download updated version files
+        uses: actions/download-artifact@v4
+        with:
+          name: version-files
+          path: .
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-artifacts
+
+      - name: Download update JSON
+        uses: actions/download-artifact@v4
+        with:
+          name: update-json
+          path: update-json
+
+      - name: Prepare artifacts for release
+        run: |
+          mkdir -p release-artifacts
+          # Copy all build artifacts
+          find dist-artifacts -type f \( -name "*.deb" -o -name "*.AppImage" -o -name "*.dmg" -o -name "*.msi" -o -name "*.exe" \) \
+            -exec cp {} release-artifacts/ \;
+          # Copy update JSON
+          cp update-json/latest.json release-artifacts/
+          
+          echo "Artifacts ready for release:"
+          ls -la release-artifacts/
+
+      - name: Semantic Release
+        working-directory: ./tock-ui
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npx semantic-releasename: Build and Release Tock UI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  prepare-version:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    outputs:
+      has_new_version: ${{ steps.version-check.outputs.has_new_version }}
+      version: ${{ steps.version-check.outputs.version }}
+      update_json_path: ${{ steps.version-check.outputs.update_json_path }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: 'tock-ui/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: ./tock-ui
+        run: npm ci
+
+      - name: Detect version and update files
+        id: version-check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node .github/scripts/prepare-version.js
+
+      - name: Upload updated version files
+        if: steps.version-check.outputs.has_new_version == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: version-files
+          path: |
+            tock-ui/package.json
+            tock-ui/src-tauri/Cargo.toml
+            tock-ui/src-tauri/tauri.conf.json
+          retention-days: 1
+
+  build-and-release:  # This line should be indented to align with 'prepare-version:'
+    needs: prepare-version
+    if: |
+      always() &&
+      (needs.prepare-version.result == 'success' || needs.prepare-version.result == 'skipped') &&
+      !cancelled()
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'ubuntu-22.04'
+            args: ''
+            artifact_name: 'linux'
+          - platform: 'windows-latest'
+            args: ''
+            artifact_name: 'windows'
+          - platform: 'macos-latest'
+            args: ''
+            artifact_name: 'macos'
+    
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+
+      - name: Download updated version files
+        if: needs.prepare-version.outputs.has_new_version == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: version-files
+          path: ./downloaded-version-files
+
+      - name: Debug - Show downloaded files
+        if: needs.prepare-version.outputs.has_new_version == 'true'
+        shell: bash
+        run: |
+          echo "=== Downloaded files structure ==="
+          find downloaded-version-files -type f -name "*.json" -o -name "*.toml" | xargs -I {} sh -c 'echo "File: {}"; echo "Content:"; cat {}; echo ""'
+          echo ""
+          echo "=== Full directory tree ==="
+          find downloaded-version-files -type f | sort
+
+      - name: Apply updated version files
+        if: needs.prepare-version.outputs.has_new_version == 'true'
+        shell: bash
+        run: |
+          echo "Applying updated version files..."
+          
+          # First check what we actually downloaded
+          echo "Looking for downloaded files..."
+          
+          # Find the actual paths
+          PACKAGE_JSON_PATH=$(find downloaded-version-files -name "package.json" -type f | head -1)
+          CARGO_TOML_PATH=$(find downloaded-version-files -name "Cargo.toml" -type f | head -1)
+          TAURI_CONF_PATH=$(find downloaded-version-files -name "tauri.conf.json" -type f | head -1)
+          
+          echo "Found package.json at: $PACKAGE_JSON_PATH"
+          echo "Found Cargo.toml at: $CARGO_TOML_PATH"
+          echo "Found tauri.conf.json at: $TAURI_CONF_PATH"
+          
+          # Copy files if found
+          if [ -n "$PACKAGE_JSON_PATH" ] && [ -f "$PACKAGE_JSON_PATH" ]; then
+            echo "Updating package.json..."
+            cp "$PACKAGE_JSON_PATH" tock-ui/package.json
+          else
+            echo "WARNING: package.json not found in downloaded files"
+          fi
+          
+          if [ -n "$CARGO_TOML_PATH" ] && [ -f "$CARGO_TOML_PATH" ]; then
+            echo "Updating Cargo.toml..."
+            mkdir -p tock-ui/src-tauri
+            cp "$CARGO_TOML_PATH" tock-ui/src-tauri/Cargo.toml
+          else
+            echo "WARNING: Cargo.toml not found in downloaded files"
+          fi
+          
+          if [ -n "$TAURI_CONF_PATH" ] && [ -f "$TAURI_CONF_PATH" ]; then
+            echo "Updating tauri.conf.json..."
+            mkdir -p tock-ui/src-tauri
+            cp "$TAURI_CONF_PATH" tock-ui/src-tauri/tauri.conf.json
+          else
+            echo "WARNING: tauri.conf.json not found in downloaded files"
+          fi
+          
+          # Verify the updates
+          echo "=== Verify updated versions ==="
+          echo "package.json version:"
+          grep -A 1 '"version"' tock-ui/package.json || echo "package.json not found or no version"
+          echo ""
+          echo "Cargo.toml version:"
+          grep '^version' tock-ui/src-tauri/Cargo.toml 2>/dev/null || echo "Cargo.toml not found or no version"
+          echo ""
+          echo "tauri.conf.json version:"
+          grep '"version"' tock-ui/src-tauri/tauri.conf.json 2>/dev/null || echo "tauri.conf.json not found or no version"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'tock-ui/package-lock.json'
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libgtk-3-dev
+
+      - name: Install macOS dependencies
+        if: matrix.platform == 'macos-latest'
+        run: |
+          brew install pkg-config
+          brew install openssl@3
+
+      - name: Install Windows dependencies
+        if: matrix.platform == 'windows-latest'
+        run: |
+          choco install -y visualstudio2022buildtools
+          choco install -y visualstudio2022-workload-vctools
+        shell: pwsh
+
+      - name: Cache Rust dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './tock-ui/src-tauri -> target'
+
+      - name: Install frontend dependencies
+        working-directory: ./tock-ui
+        run: npm ci
+
       - name: Inject updater public key
         working-directory: ./tock-ui
         env:
