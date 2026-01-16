@@ -1,3 +1,15 @@
+# [1.13.0](https://github.com/DiiageCUCDB/tockApplicationCRA/compare/v1.12.0...v1.13.0) (2026-01-16)
+
+
+### Bug Fixes
+
+* Enhance build output and signature validation in workflow ([98fe4b9](https://github.com/DiiageCUCDB/tockApplicationCRA/commit/98fe4b9b37cc4e412f2833efd59abfaea402ac8f))
+
+
+### Features
+
+* Add public key injection for auto-update and enhance update JSON creation with signatures ([a65d7b5](https://github.com/DiiageCUCDB/tockApplicationCRA/commit/a65d7b54c3d2cfe526096adfae02ee1eb49a398d))
+
 # [1.12.0](https://github.com/DiiageCUCDB/tockApplicationCRA/compare/v1.11.0...v1.12.0) (2026-01-16)
 
 
