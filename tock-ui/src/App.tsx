@@ -169,7 +169,7 @@ function App() {
         <TabSelector activeTab={activeTab} onTabChange={setActiveTab} />
 
         {/* Tab Content */}
-        <div className="bg-white rounded-lg shadow-lg p-6 min-h-[500px]">
+        <div className="bg-white rounded-lg shadow-lg p-6 min-h-125">
           {activeTab === "activity" && <ActivityTab showMessage={showMessage} />}
           {activeTab === "history" && <HistoryTab />}
           {activeTab === "settings" && <SettingsTab showMessage={showMessage} />}

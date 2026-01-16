@@ -203,6 +203,25 @@ jobs:
         working-directory: ./tock-ui
         run: npm ci
 
+      - name: Inject updater public key
+        working-directory: ./tock-ui
+        env:
+          TAURI_PUBLIC_KEY: ${{ secrets.TAURI_PUBLIC_KEY }}
+        shell: bash
+        run: |
+          if [ -n "$TAURI_PUBLIC_KEY" ]; then
+            if ! jq --indent 2 --arg pubkey "$TAURI_PUBLIC_KEY" \
+              '.plugins.updater.pubkey = $pubkey' \
+              src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp; then
+              echo "Error: Failed to inject public key into tauri.conf.json"
+              exit 1
+            fi
+            mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
+            echo "Public key injected into tauri.conf.json"
+          else
+            echo "Warning: TAURI_PUBLIC_KEY secret not set. Auto-update signature verification will not work."
+          fi
+
       - name: Build Tauri application
         working-directory: ./tock-ui
         run: npm run tauri build -- ${{ matrix.args }}
@@ -219,7 +238,7 @@ jobs:
           retention-days: 7
 
   create-update-json:
-    needs: [prepare-version]
+    needs: [prepare-version, build-and-release]
     runs-on: ubuntu-latest
     if: needs.prepare-version.outputs.has_new_version == 'true'
     steps:
@@ -240,6 +259,11 @@ jobs:
           name: version-files
           path: ./downloaded-version-files
 
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./build-artifacts
+
       - name: Debug downloaded files
         shell: bash
         run: |
@@ -255,6 +279,9 @@ jobs:
           else
             echo "ERROR: package.json not found!"
           fi
+          echo ""
+          echo "=== Build artifacts structure ==="
+          find build-artifacts -type f -name "*.sig" -o -name "*.tar.gz" -o -name "*.zip" | sort
 
       - name: Create update JSON
         shell: bash
@@ -280,31 +307,111 @@ jobs:
           
           echo "Creating update JSON for version: $VERSION"
           
+          # Function to find and read signature file
+          find_signature() {
+            local pattern="$1"
+            local platform="$2"
+            local sig_file=$(find build-artifacts -type f -name "${pattern}.sig" | head -1)
+            if [ -n "$sig_file" ] && [ -f "$sig_file" ]; then
+              cat "$sig_file"
+            else
+              echo "ERROR: Signature file not found for ${platform} (pattern: ${pattern})" >&2
+              return 1
+            fi
+          }
+          
+          # Extract signatures for each platform
+          echo "Extracting signatures..."
+          
+          # Linux AppImage signature
+          LINUX_SIG=$(find_signature "*amd64.AppImage.tar.gz" "Linux")
+          echo "Linux signature: ${LINUX_SIG:0:50}..."
+          
+          # Windows NSIS signature
+          WINDOWS_SIG=$(find_signature "*x64-setup.nsis.zip" "Windows")
+          echo "Windows signature: ${WINDOWS_SIG:0:50}..."
+          
+          # macOS x64 signature
+          MACOS_X64_SIG=$(find_signature "*x64.app.tar.gz" "macOS x64")
+          echo "macOS x64 signature: ${MACOS_X64_SIG:0:50}..."
+          
+          # macOS ARM64 signature
+          MACOS_ARM64_SIG=$(find_signature "*aarch64.app.tar.gz" "macOS ARM64")
+          echo "macOS ARM64 signature: ${MACOS_ARM64_SIG:0:50}..."
+          
+          # Validate all signatures are non-empty
+          echo ""
+          echo "Validating signatures..."
+          ALL_VALID=true
+          
+          if [ -z "$LINUX_SIG" ]; then
+            echo "ERROR: Linux signature is empty"
+            ALL_VALID=false
+          fi
+          
+          if [ -z "$WINDOWS_SIG" ]; then
+            echo "ERROR: Windows signature is empty"
+            ALL_VALID=false
+          fi
+          
+          if [ -z "$MACOS_X64_SIG" ]; then
+            echo "ERROR: macOS x64 signature is empty"
+            ALL_VALID=false
+          fi
+          
+          if [ -z "$MACOS_ARM64_SIG" ]; then
+            echo "ERROR: macOS ARM64 signature is empty"
+            ALL_VALID=false
+          fi
+          
+          if [ "$ALL_VALID" = "false" ]; then
+            echo ""
+            echo "ERROR: One or more signatures are missing. Cannot create update JSON without signatures."
+            echo "This is a security requirement - all updates must be signed."
+            exit 1
+          fi
+          
+          echo "All signatures validated successfully!"
+          
           # Create dist directory
           mkdir -p tock-ui/dist
           
-          # Create the update JSON
-          cat > tock-ui/dist/latest.json << EOF
-          {
-            "version": "$VERSION",
-            "notes": "Auto-generated release",
-            "pub_date": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-            "platforms": {
-              "linux-x86_64": {
-                "url": "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Tock.UI_${VERSION}_amd64.AppImage"
-              },
-              "darwin-x86_64": {
-                "url": "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Tock.UI_${VERSION}_x64.dmg"
-              },
-              "darwin-aarch64": {
-                "url": "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Tock.UI_${VERSION}_aarch64.dmg"
-              },
-              "windows-x86_64": {
-                "url": "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Tock.UI_${VERSION}_x64_en-US.msi"
+          # Create the update JSON with signatures using jq
+          jq -n \
+            --arg version "$VERSION" \
+            --arg notes "Auto-generated release" \
+            --arg pub_date "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+            --arg linux_url "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/tock-ui_${VERSION}_amd64.AppImage.tar.gz" \
+            --arg linux_sig "$LINUX_SIG" \
+            --arg darwin_x64_url "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Tock.UI_x64.app.tar.gz" \
+            --arg darwin_x64_sig "$MACOS_X64_SIG" \
+            --arg darwin_arm64_url "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Tock.UI_aarch64.app.tar.gz" \
+            --arg darwin_arm64_sig "$MACOS_ARM64_SIG" \
+            --arg windows_url "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Tock.UI_${VERSION}_x64-setup.nsis.zip" \
+            --arg windows_sig "$WINDOWS_SIG" \
+            '{
+              version: $version,
+              notes: $notes,
+              pub_date: $pub_date,
+              platforms: {
+                "linux-x86_64": {
+                  signature: $linux_sig,
+                  url: $linux_url
+                },
+                "darwin-x86_64": {
+                  signature: $darwin_x64_sig,
+                  url: $darwin_x64_url
+                },
+                "darwin-aarch64": {
+                  signature: $darwin_arm64_sig,
+                  url: $darwin_arm64_url
+                },
+                "windows-x86_64": {
+                  signature: $windows_sig,
+                  url: $windows_url
+                }
               }
-            }
-          }
-          EOF
+            }' > tock-ui/dist/latest.json
           
           echo "Update JSON created:"
           cat tock-ui/dist/latest.json
