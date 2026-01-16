@@ -1,3 +1,23 @@
+# [1.12.0](https://github.com/DiiageCUCDB/tockApplicationCRA/compare/v1.11.0...v1.12.0) (2026-01-16)
+
+
+### Bug Fixes
+
+* add updater file validation and improve null checking ([7026489](https://github.com/DiiageCUCDB/tockApplicationCRA/commit/702648960e9b883a775c02ab48bc67e153813ae5))
+* address code review feedback - HTTPS timestamp URL and improved documentation ([32bad5e](https://github.com/DiiageCUCDB/tockApplicationCRA/commit/32bad5ee873dde9424596252bf1064e0af2509e4))
+* Refactor CalendarDay component and improve date handling in HistoryTab ([350efb3](https://github.com/DiiageCUCDB/tockApplicationCRA/commit/350efb3fac44bad3c4e4516328b2790c70b1afd7))
+
+
+### Features
+
+* add auto-update signature generation and Windows code signing ([4dbcd7f](https://github.com/DiiageCUCDB/tockApplicationCRA/commit/4dbcd7f86f3488c99d49fb9bf00353c73e7c8a42))
+* Add build-and-release dependency to create-update-json ([4234158](https://github.com/DiiageCUCDB/tockApplicationCRA/commit/42341585a2c8334a96005b98af5269232230dbca))
+* Add step to download build artifacts ([84ee466](https://github.com/DiiageCUCDB/tockApplicationCRA/commit/84ee466bb0bd5fc3793228b4ef89444fe414e10a))
+* Improve README.md formatting ([1886360](https://github.com/DiiageCUCDB/tockApplicationCRA/commit/1886360f0c1e612a2e962d73200ce97e49866c05))
+* Refactor build workflow and update artifact handling ([ad3d5cf](https://github.com/DiiageCUCDB/tockApplicationCRA/commit/ad3d5cf79311abdc5512b6ad6a052d1ef281571e))
+* Remove build-and-release job from workflow ([fe41de4](https://github.com/DiiageCUCDB/tockApplicationCRA/commit/fe41de4eb1664f42de652808cb246efe32b1d9fd))
+* Specify bash shell for updater public key injection ([2b30489](https://github.com/DiiageCUCDB/tockApplicationCRA/commit/2b304896f9b5e54590d6a33f8f65945a2f62e441))
+
 # [1.11.0](https://github.com/DiiageCUCDB/tockApplicationCRA/compare/v1.10.0...v1.11.0) (2026-01-15)
 
 
