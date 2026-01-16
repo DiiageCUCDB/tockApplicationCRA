@@ -30,7 +30,6 @@ interface CalendarDayProps {
 
 const CalendarDay = React.memo<CalendarDayProps>(({ 
   day, 
-  dateStr, 
   hasActivities, 
   isSelected, 
   dayData, 
@@ -246,7 +245,7 @@ export const HistoryTab: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentMonth]); // Only re-run when currentMonth changes
 
-  const handleDateClick = useCallback(async (date: Date) => {
+  const handleDateClick = useCallback((date: Date) => {
     setSelectedDate(date);
   }, []);
 
@@ -372,8 +371,8 @@ export const HistoryTab: React.FC = () => {
           {/* Calendar days */}
           {calendarDays.map((day) => {
             const dateStr = format(day, 'yyyy-MM-dd');
-            const hasActivities = activitiesData[dateStr] && activitiesData[dateStr].activities.length > 0;
-            const isSelected = selectedDate && isSameDay(day, selectedDate);
+            const hasActivities = (activitiesData[dateStr]?.activities?.length ?? 0) > 0;
+            const isSelected = selectedDate ? isSameDay(day, selectedDate) : false;
             const dayData = activitiesData[dateStr];
 
             return (
@@ -436,7 +435,7 @@ export const HistoryTab: React.FC = () => {
                 />
                 {index < timelineItems.length - 1 && (
                   <div
-                    className="w-0.5 h-full min-h-[40px] mt-1"
+                    className="w-0.5 h-full min-h-10 mt-1"
                     style={{ backgroundColor: item.color, opacity: 0.3 }}
                   />
                 )}
@@ -498,7 +497,7 @@ export const HistoryTab: React.FC = () => {
       {/* Selected Day Details */}
       <div className="bg-slate-50 rounded-lg p-6 border border-slate-200">
         <h2 className="text-xl font-semibold text-slate-800 mb-4">Activity Details</h2>
-        <div className="bg-white rounded-lg p-4 border border-slate-200 min-h-[300px]">
+        <div className="bg-white rounded-lg p-4 border border-slate-200 min-h-75">
           {renderSelectedDayDetails()}
         </div>
       </div>
